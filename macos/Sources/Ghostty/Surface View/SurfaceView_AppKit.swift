@@ -29,6 +29,9 @@ extension Ghostty {
         // changed with escape codes.
         @Published var pwd: String?
 
+        // Custom metadata for the sidebar, set via: printf '\e]2;!meta:key=value\a'
+        var sidebarMetadata: [String: String] = [:]
+
         // The cell size of this surface. This is set by the core when the
         // surface is first created and any time the cell size changes (i.e.
         // when the font size changes). This is used to allow windows to be
@@ -608,10 +611,13 @@ extension Ghostty {
         /// Usage: printf '\e]2;!rename:My Tab Name\a'
         private static let renamePrefix = "!rename:"
 
+        /// Prefix used to set sidebar metadata from CLI.
+        /// Usage: printf '\e]2;!meta:key=value\a'
+        /// Clear: printf '\e]2;!meta:key=\a'
+        private static let metaPrefix = "!meta:"
+
         func setTitle(_ title: String) {
             // Intercept sticky rename command before any coalescing or filtering.
-            // This sets titleOverride on the window controller, which persists
-            // across shell prompt title resets.
             if title.hasPrefix(Self.renamePrefix) {
                 let newTitle = String(title.dropFirst(Self.renamePrefix.count))
                 DispatchQueue.main.async { [weak self] in
@@ -619,6 +625,21 @@ extension Ghostty {
                           let window = self.window,
                           let controller = window.windowController as? BaseTerminalController else { return }
                     controller.titleOverride = newTitle.isEmpty ? nil : newTitle
+                }
+                return
+            }
+
+            // Intercept metadata commands for sidebar display.
+            if title.hasPrefix(Self.metaPrefix) {
+                let payload = String(title.dropFirst(Self.metaPrefix.count))
+                if let eqIdx = payload.firstIndex(of: "=") {
+                    let key = String(payload[payload.startIndex..<eqIdx])
+                    let value = String(payload[payload.index(after: eqIdx)...])
+                    if value.isEmpty {
+                        sidebarMetadata.removeValue(forKey: key)
+                    } else {
+                        sidebarMetadata[key] = value
+                    }
                 }
                 return
             }

@@ -1,16 +1,26 @@
 import Cocoa
 import Combine
+import GhosttyKit
 
 /// Observes the tab group of a window and publishes tab metadata for the sidebar.
 class SidebarTabManager: ObservableObject {
     struct TabItem: Identifiable, Equatable {
         let id: ObjectIdentifier
         let title: String
+        let pwd: String?
+        let metadata: [String: String]
         let isSelected: Bool
         let window: NSWindow
 
+        /// The last path component of the pwd, for compact display.
+        var directoryName: String? {
+            guard let pwd, !pwd.isEmpty else { return nil }
+            return (pwd as NSString).lastPathComponent
+        }
+
         static func == (lhs: TabItem, rhs: TabItem) -> Bool {
             lhs.id == rhs.id && lhs.title == rhs.title && lhs.isSelected == rhs.isSelected
+                && lhs.pwd == rhs.pwd && lhs.metadata == rhs.metadata
         }
     }
 
@@ -34,7 +44,6 @@ class SidebarTabManager: ObservableObject {
     private func setupObservers() {
         let center = NotificationCenter.default
 
-        // Listen for window title changes
         let titleObserver = center.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: nil,
@@ -49,8 +58,7 @@ class SidebarTabManager: ObservableObject {
         ) { [weak self] _ in self?.refresh() }
         observers.append(resignObserver)
 
-        // Poll periodically because there's no great notification for tab group changes
-        // or title changes across all windows in the group.
+        // Poll periodically for tab group changes, title changes, pwd changes.
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.refresh()
         }
@@ -68,10 +76,15 @@ class SidebarTabManager: ObservableObject {
 
         let selectedWindow = window.tabGroup?.selectedWindow ?? window
 
-        let newTabs = tabWindows.map { w in
-            TabItem(
+        let newTabs = tabWindows.map { w -> TabItem in
+            let controller = w.windowController as? BaseTerminalController
+            let surface = controller?.focusedSurface
+
+            return TabItem(
                 id: ObjectIdentifier(w),
                 title: w.title,
+                pwd: surface?.pwd,
+                metadata: surface?.sidebarMetadata ?? [:],
                 isSelected: w === selectedWindow,
                 window: w
             )
