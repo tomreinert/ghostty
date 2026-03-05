@@ -1,3 +1,34 @@
+> **This is a personal fork of [Ghostty](https://github.com/ghostty-org/ghostty)** with a custom sidebar tab system for macOS. It is not affiliated with the upstream project. For the official Ghostty terminal, visit [ghostty.org](https://ghostty.org).
+
+## Fork Changes
+
+This fork replaces the native macOS tab bar with a left vertical sidebar that shows richer tab information:
+
+- **Sidebar tab list** — vertical sidebar with tab cards showing title, working directory, and git branch
+- **Drag-and-drop reordering** — reorder tabs by dragging within the sidebar
+- **Attention indicators** — blue dot on tabs with unread bell or desktop notifications
+- **Tab renaming** — right-click context menu to rename tabs, or rename from CLI via distributed notifications
+- **Configurable styling** — `sidebar-active-tab-color`, `sidebar-title-font-size`, `sidebar-subtitle-font-size` config options
+- **Persistent sidebar width** — sidebar width is remembered across tabs
+
+### Config Options
+
+Add these to your Ghostty config file (`~/.config/ghostty/config`):
+
+```
+sidebar-active-tab-color = #ff6600
+sidebar-title-font-size = 14
+sidebar-subtitle-font-size = 11
+```
+
+### CLI Tab Renaming
+
+```bash
+swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(.init("com.ghostty.setTabTitle"), object: nil, userInfo: ["title": "My Tab"], deliverImmediately: true)'
+```
+
+---
+
 <!-- LOGO -->
 <h1>
 <p align="center">
