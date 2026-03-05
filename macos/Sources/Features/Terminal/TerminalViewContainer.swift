@@ -81,7 +81,22 @@ class TerminalViewContainer: NSView {
 
 extension BaseTerminalController {
     var terminalViewContainer: TerminalViewContainer? {
-        window?.contentView as? TerminalViewContainer
+        // Direct content view case (no sidebar)
+        if let container = window?.contentView as? TerminalViewContainer {
+            return container
+        }
+        // Sidebar/split case: search the view hierarchy
+        return window?.contentView?.firstDescendant(ofType: TerminalViewContainer.self)
+    }
+}
+
+private extension NSView {
+    func firstDescendant<T: NSView>(ofType type: T.Type) -> T? {
+        for subview in subviews {
+            if let match = subview as? T { return match }
+            if let match = subview.firstDescendant(ofType: type) { return match }
+        }
+        return nil
     }
 }
 

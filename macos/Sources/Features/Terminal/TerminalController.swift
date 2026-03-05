@@ -5,7 +5,7 @@ import Combine
 import GhosttyKit
 
 /// A classic, tabbed terminal experience.
-class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller {
+class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Controller, NSSplitViewDelegate {
     override var windowNibName: NSNib.Name? {
         let defaultValue = "Terminal"
 
@@ -59,6 +59,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
     /// This will be set to the initial frame of the window from the xib on load.
     private var initialFrame: NSRect?
+
+    /// The sidebar tab manager that tracks tabs for the sidebar view.
+    private(set) var sidebarTabManager: SidebarTabManager?
+
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -544,6 +548,19 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
                 } else {
                     window.keyEquivalent = ""
                 }
+            }
+        }
+
+        // Refresh sidebar across all windows in the tab group
+        refreshAllSidebars()
+    }
+
+    /// Refreshes the sidebar tab manager for all windows in the current tab group.
+    private func refreshAllSidebars() {
+        let windows = window?.tabGroup?.windows ?? (window.map { [$0] } ?? [])
+        for w in windows {
+            if let controller = w.windowController as? TerminalController {
+                controller.sidebarTabManager?.refresh()
             }
         }
     }
@@ -1037,10 +1054,38 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             focusedSurface = view
         }
 
-        // Initialize our content view to the SwiftUI root
-        window.contentView = TerminalViewContainer {
+        // Mark the window as using a sidebar so the native tab bar is hidden
+        if let terminalWindow = window as? TerminalWindow {
+            terminalWindow.sidebarActive = true
+        }
+
+        // Initialize sidebar tab manager
+        let tabManager = SidebarTabManager(window: window)
+        self.sidebarTabManager = tabManager
+
+        // Create the terminal content view
+        let terminalContainer = TerminalViewContainer {
             TerminalView(ghostty: ghostty, viewModel: self, delegate: self)
         }
+
+        // Create the sidebar hosting view
+        let sidebarHostingView = NSHostingView(rootView: SidebarView(tabManager: tabManager))
+
+        // Build the split view: sidebar | terminal
+        let splitView = NSSplitView()
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.addSubview(sidebarHostingView)
+        splitView.addSubview(terminalContainer)
+        splitView.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        splitView.setHoldingPriority(.defaultHigh, forSubviewAt: 1)
+        splitView.delegate = self
+
+        // Set initial sidebar width
+        sidebarHostingView.frame = NSRect(x: 0, y: 0, width: 200, height: 400)
+        terminalContainer.frame = NSRect(x: 200, y: 0, width: 600, height: 400)
+
+        window.contentView = splitView
 
         // If we have a default size, we want to apply it.
         if let defaultSize {
@@ -1100,6 +1145,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Trigger the ghostty core event logic for a new tab.
         guard let surface = self.focusedSurface?.surface else { return }
         ghostty.newTab(surface: surface)
+    }
+
+    // MARK: NSSplitViewDelegate
+
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if dividerIndex == 0 { return 140 }
+        return proposedMinimumPosition
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if dividerIndex == 0 { return 280 }
+        return proposedMaximumPosition
     }
 
     // MARK: NSWindowDelegate

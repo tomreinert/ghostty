@@ -58,6 +58,9 @@ class TerminalWindow: NSWindow {
         windowController as? TerminalController
     }
 
+    /// When true, the native tab bar is hidden because a sidebar is providing tab UI.
+    var sidebarActive: Bool = false
+
     /// The color assigned to this window's tab. Setting this updates the tab color indicator
     /// and marks the window's restorable state as dirty.
     var tabColor: TerminalTabColor = .none {
@@ -256,6 +259,14 @@ class TerminalWindow: NSWindow {
         // it. This has been verified to work on macOS 12 to 26
         if isTabBar(childViewController) {
             childViewController.identifier = Self.tabBarIdentifier
+
+            // When sidebar is active, hide the native tab bar immediately
+            if sidebarActive {
+                childViewController.isHidden = true
+                // Set height to 0 to prevent layout space
+                childViewController.fullScreenMinHeight = 0
+            }
+
             tabBarDidAppear()
         }
     }
