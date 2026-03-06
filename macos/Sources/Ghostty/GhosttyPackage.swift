@@ -363,6 +363,9 @@ extension Notification.Name {
     /// A desktop notification was fired for a surface (OSC 9/99 or command completion)
     static let ghosttyDesktopNotificationDidFire = Notification.Name("com.mitchellh.ghostty.desktopNotificationDidFire")
 
+    /// An IPC notification was received (tab.notify command). Object is the target NSWindow.
+    static let ghosttyIPCNotification = Notification.Name("com.mitchellh.ghostty.ipcNotification")
+
     /// Readonly mode changed
     static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
     static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"

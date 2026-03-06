@@ -4,28 +4,49 @@
 
 This fork replaces the native macOS tab bar with a left vertical sidebar that shows richer tab information:
 
-- **Sidebar tab list** — vertical sidebar with tab cards showing title, working directory, and git branch
+- **Sidebar tab cards** — title, working directory, git branch, and custom status entries
+- **Built-in git branch** — detected automatically from `.git/HEAD`, no shell hooks needed
+- **IPC socket** — Unix domain socket at `/tmp/ghostty-{uid}.sock` for external control
+- **CLI tool (`ghosttyctl`)** — rename tabs, send notifications, set custom status metadata
 - **Drag-and-drop reordering** — reorder tabs by dragging within the sidebar
-- **Attention indicators** — blue dot on tabs with unread bell or desktop notifications
-- **Tab renaming** — right-click context menu to rename tabs, or rename from CLI via distributed notifications
-- **Configurable styling** — `sidebar-active-tab-color`, `sidebar-title-font-size`, `sidebar-subtitle-font-size` config options
-- **Persistent sidebar width** — sidebar width is remembered across tabs
+- **Attention indicators** — orange dot on tabs with unread bell or IPC notifications
+- **Theme-derived colors** — sidebar colors computed from terminal background/foreground
+- **Configurable fields** — choose which info to show via `sidebar-fields` config
 
-### Config Options
-
-Add these to your Ghostty config file (`~/.config/ghostty/config`):
+### Config
 
 ```
-sidebar-active-tab-color = #ff6600
-sidebar-title-font-size = 14
-sidebar-subtitle-font-size = 11
+# Which fields to show (comma-separated, default: all)
+sidebar-fields = title,directory,git-branch,status
 ```
 
-### CLI Tab Renaming
+Colors are derived automatically from your terminal theme.
+
+### CLI: `ghosttyctl`
+
+Installed at `~/.local/bin/ghosttyctl` (symlink from `cli/ghosttyctl`).
 
 ```bash
-swift -e 'import Foundation; DistributedNotificationCenter.default().postNotificationName(.init("com.ghostty.setTabTitle"), object: nil, userInfo: ["title": "My Tab"], deliverImmediately: true)'
+ghosttyctl rename "Tab Name"                              # rename current tab
+ghosttyctl notify --title "Done" --body "Build finished"  # macOS notification + attention dot
+ghosttyctl set-status server "localhost:3000" --icon network  # custom sidebar metadata
+ghosttyctl clear-status server                            # remove metadata
+ghosttyctl list                                           # list all tabs (JSON)
+ghosttyctl current                                        # current tab info (JSON)
 ```
+
+Environment variables `GHOSTTY_SOCKET` and `GHOSTTY_TAB_ID` are injected into every terminal session.
+
+### Claude Code Integration
+
+Add these instructions to your `~/.claude/CLAUDE.md` so Claude Code can use the sidebar:
+
+```markdown
+- Rename the workspace using: `ghosttyctl rename "Claude: <name>"`. Name it after the specific work being done.
+- You can set custom sidebar status entries using `ghosttyctl set-status <key> <value> [--icon <sf-symbol>]` and clear with `ghosttyctl clear-status <key>`.
+```
+
+Claude Code will then automatically rename tabs and set status context as it works.
 
 ---
 

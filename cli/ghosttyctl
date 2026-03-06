@@ -1,0 +1,214 @@
+#!/bin/bash
+#
+# ghosttyctl - CLI controller for Ghostty terminal (fork)
+# Communicates with the Ghostty IPC socket to control tabs.
+#
+
+set -euo pipefail
+
+SOCKET_PATH="${GHOSTTY_SOCKET:-/tmp/ghostty-$(id -u).sock}"
+
+# ── Helpers ──────────────────────────────────────────────────────────────
+
+usage() {
+    cat <<'USAGE'
+ghosttyctl - control Ghostty tabs via IPC
+
+Usage:
+  ghosttyctl <command> [options]
+
+Commands:
+  rename <title>           Rename the current tab (empty string to clear)
+  notify <message>         Send a notification (short form)
+  notify --title T --body B  Send a notification (long form)
+  set-status <key> <value> [--icon <sf-symbol>]  Set status metadata
+  clear-status <key>       Clear a status key
+  list                     List all tabs (JSON)
+  current                  Get current tab info (JSON)
+
+Environment:
+  GHOSTTY_SOCKET   Override the IPC socket path
+                   (default: /tmp/ghostty-<uid>.sock)
+  GHOSTTY_TAB_ID   If set, targets that specific tab
+
+Options:
+  --help, -h       Show this help message
+USAGE
+}
+
+# Escape a string for safe inclusion in a JSON value.
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Build the optional "tab_id" JSON fragment for inside params object.
+tab_id_param() {
+    if [[ -n "${GHOSTTY_TAB_ID:-}" ]]; then
+        printf '"tab_id": "%s", ' "$(json_escape "$GHOSTTY_TAB_ID")"
+    fi
+}
+
+# Send a JSON request to the Ghostty IPC socket and print the response.
+# Appends a newline delimiter as required by the protocol.
+send_request() {
+    local json="$1"
+
+    if [[ ! -S "$SOCKET_PATH" ]]; then
+        echo "error: socket not found at $SOCKET_PATH" >&2
+        echo "Is Ghostty running?" >&2
+        exit 1
+    fi
+
+    printf '%s\n' "$json" | nc -U "$SOCKET_PATH"
+}
+
+# ── Commands ─────────────────────────────────────────────────────────────
+
+cmd_rename() {
+    if [[ $# -lt 1 ]]; then
+        echo "usage: ghosttyctl rename <title>" >&2
+        exit 1
+    fi
+    local title
+    title="$(json_escape "$1")"
+
+    send_request "{\"method\": \"tab.rename\", \"params\": {$(tab_id_param)\"title\": \"$title\"}}"
+}
+
+cmd_notify() {
+    local title="" body=""
+
+    # Short form: ghosttyctl notify "message"
+    if [[ $# -ge 1 && "$1" != "--title" && "$1" != "--body" ]]; then
+        body="$(json_escape "$1")"
+        title="Ghostty"
+        shift
+    fi
+
+    # Long form flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --title)
+                title="$(json_escape "$2")"
+                shift 2
+                ;;
+            --body)
+                body="$(json_escape "$2")"
+                shift 2
+                ;;
+            *)
+                echo "usage: ghosttyctl notify <message>" >&2
+                echo "       ghosttyctl notify --title T --body B" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [[ -z "$body" && -z "$title" ]]; then
+        echo "usage: ghosttyctl notify <message>" >&2
+        exit 1
+    fi
+
+    send_request "{\"method\": \"tab.notify\", \"params\": {$(tab_id_param)\"title\": \"$title\", \"body\": \"$body\"}}"
+}
+
+cmd_set_status() {
+    if [[ $# -lt 2 ]]; then
+        echo "usage: ghosttyctl set-status <key> <value> [--icon <sf-symbol>]" >&2
+        exit 1
+    fi
+
+    local key value icon=""
+    key="$(json_escape "$1")"
+    value="$(json_escape "$2")"
+    shift 2
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --icon)
+                icon="$(json_escape "$2")"
+                shift 2
+                ;;
+            *)
+                echo "error: unknown option: $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    local icon_fragment=""
+    if [[ -n "$icon" ]]; then
+        icon_fragment=", \"icon\": \"$icon\""
+    fi
+
+    send_request "{\"method\": \"tab.set-status\", \"params\": {$(tab_id_param)\"key\": \"$key\", \"value\": \"$value\"$icon_fragment}}"
+}
+
+cmd_clear_status() {
+    if [[ $# -lt 1 ]]; then
+        echo "usage: ghosttyctl clear-status <key>" >&2
+        exit 1
+    fi
+
+    local key
+    key="$(json_escape "$1")"
+
+    send_request "{\"method\": \"tab.clear-status\", \"params\": {$(tab_id_param)\"key\": \"$key\"}}"
+}
+
+cmd_list() {
+    send_request '{"method": "tab.list", "params": {}}'
+}
+
+cmd_current() {
+    send_request '{"method": "tab.current", "params": {}}'
+}
+
+# ── Main dispatch ────────────────────────────────────────────────────────
+
+if [[ $# -lt 1 ]]; then
+    usage
+    exit 1
+fi
+
+case "$1" in
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    rename)
+        shift
+        cmd_rename "$@"
+        ;;
+    notify)
+        shift
+        cmd_notify "$@"
+        ;;
+    set-status)
+        shift
+        cmd_set_status "$@"
+        ;;
+    clear-status)
+        shift
+        cmd_clear_status "$@"
+        ;;
+    list)
+        shift
+        cmd_list "$@"
+        ;;
+    current)
+        shift
+        cmd_current "$@"
+        ;;
+    *)
+        echo "error: unknown command '$1'" >&2
+        echo "Run 'ghosttyctl --help' for usage." >&2
+        exit 1
+        ;;
+esac

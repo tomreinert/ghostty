@@ -137,9 +137,13 @@ class BaseTerminalController: NSWindowController,
 
         super.init(window: nil)
 
-        // Initialize our initial surface.
+        // Initialize our initial surface, injecting IPC environment variables.
         guard let ghostty_app = ghostty.app else { preconditionFailure("app must be loaded") }
-        self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: base))
+        var config = base ?? Ghostty.SurfaceConfiguration()
+        config.environmentVariables["GHOSTTY_SOCKET"] = "/tmp/ghostty-\(getuid()).sock"
+        let surfaceUUID = UUID()
+        config.environmentVariables["GHOSTTY_TAB_ID"] = surfaceUUID.uuidString
+        self.surfaceTree = tree ?? .init(view: Ghostty.SurfaceView(ghostty_app, baseConfig: config, uuid: surfaceUUID))
 
         // Setup our bell state for the window
         setupBellNotificationPublisher()

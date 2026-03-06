@@ -548,36 +548,51 @@ extension Ghostty {
             )
         }
 
-        /// The color for the active tab highlight in the sidebar.
-        /// Returns nil if not configured, in which case the sidebar uses its default.
-        var sidebarActiveTabColor: Color? {
-            guard let config = self.config else { return nil }
+        /// The terminal background as an NSColor, for use by the sidebar theme.
+        var backgroundNSColor: NSColor {
+            guard let config = self.config else { return .windowBackgroundColor }
             var color: ghostty_config_color_s = .init()
-            let key = "sidebar-active-tab-color"
+            let key = "background"
             if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
-                return nil
+                return .windowBackgroundColor
             }
-            return .init(
-                red: Double(color.r) / 255,
-                green: Double(color.g) / 255,
-                blue: Double(color.b) / 255
-            )
+            return NSColor(ghostty: color)
         }
 
-        var sidebarTitleFontSize: CGFloat {
-            guard let config = self.config else { return 12 }
-            var v: CUnsignedChar = 12
-            let key = "sidebar-title-font-size"
-            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return CGFloat(v)
+        /// The terminal foreground as an NSColor, for use by the sidebar theme.
+        var foregroundNSColor: NSColor {
+            guard let config = self.config else { return .labelColor }
+            var color: ghostty_config_color_s = .init()
+            let key = "foreground"
+            if !ghostty_config_get(config, &color, key, UInt(key.lengthOfBytes(using: .utf8))) {
+                return .labelColor
+            }
+            return NSColor(ghostty: color)
         }
 
-        var sidebarSubtitleFontSize: CGFloat {
-            guard let config = self.config else { return 10 }
-            var v: CUnsignedChar = 10
-            let key = "sidebar-subtitle-font-size"
-            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
-            return CGFloat(v)
+        /// Sidebar theme derived from the terminal background/foreground colors.
+        var sidebarTheme: SidebarTheme {
+            return SidebarTheme.from(background: backgroundNSColor, foreground: foregroundNSColor)
+        }
+
+        /// Which fields to show in sidebar tab cards.
+        var sidebarFields: Set<SidebarField> {
+            guard let config = self.config else { return SidebarField.defaultFields }
+            var v: UnsafePointer<Int8>?
+            let key = "sidebar-fields"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+                return SidebarField.defaultFields
+            }
+            guard let ptr = v else { return SidebarField.defaultFields }
+            let str = String(cString: ptr)
+            var fields = Set<SidebarField>()
+            for part in str.split(separator: ",") {
+                let trimmed = part.trimmingCharacters(in: .whitespaces)
+                if let field = SidebarField(rawValue: trimmed) {
+                    fields.insert(field)
+                }
+            }
+            return fields.isEmpty ? SidebarField.defaultFields : fields
         }
 
         #if canImport(AppKit)

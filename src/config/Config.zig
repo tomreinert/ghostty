@@ -1083,17 +1083,14 @@ palette: Palette = .{},
 /// Available since: 1.1.0
 @"split-divider-color": ?Color = null,
 
-/// The background color of the active tab in the sidebar. If this is not set,
-/// the accent color with reduced opacity will be used.
-/// Specified as either hex (`#RRGGBB` or `RRGGBB`) or a named X11 color.
-@"sidebar-active-tab-color": ?Color = null,
-
-/// The font size for tab titles in the sidebar. Default is 12.
-@"sidebar-title-font-size": u8 = 12,
-
-/// The font size for subtitle text (directory, branch, metadata) in the sidebar.
-/// Default is 10.
-@"sidebar-subtitle-font-size": u8 = 10,
+/// Comma-separated list of fields to display in the sidebar tab cards.
+/// Available fields: `title`, `directory`, `status`.
+/// - `title`: the tab title (process name or custom rename)
+/// - `directory`: the working directory (last path component)
+/// - `status`: status entries set via `ghosttyctl set-status` (e.g. git branch)
+///
+/// Default: `title,directory,status`
+@"sidebar-fields": ?[:0]const u8 = null,
 
 /// Control when Ghostty preserves a zoomed split. Under normal circumstances,
 /// any operation that changes focus or layout of the split tree in a window

@@ -260,14 +260,6 @@ class AppDelegate: NSObject,
             name: Ghostty.Notification.ghosttyNewTab,
             object: nil)
 
-        // Listen for distributed notifications to set tab title from external processes
-        DistributedNotificationCenter.default().addObserver(
-            self,
-            selector: #selector(handleSetTabTitle(_:)),
-            name: .init("com.ghostty.setTabTitle"),
-            object: nil
-        )
-
         // Configure user notifications
         let actions = [
             UNNotificationAction(identifier: Ghostty.userNotificationActionShow, title: "Show")
@@ -284,6 +276,9 @@ class AppDelegate: NSObject,
             )
         ])
         center.delegate = self
+
+        // Start IPC socket server
+        GhosttyIPCServer.shared.start()
 
         // Observe our appearance so we can report the correct value to libghostty.
         self.appearanceObserver = NSApplication.shared.observe(
@@ -420,6 +415,8 @@ class AppDelegate: NSObject,
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        GhosttyIPCServer.shared.stop()
+
         // We have no notifications we want to persist after death,
         // so remove them all now. In the future we may want to be
         // more selective and only remove surface-targeted notifications.
@@ -778,14 +775,6 @@ class AppDelegate: NSObject,
         ] as? Ghostty.Config else { return }
 
         ghosttyConfigDidChange(config: config)
-    }
-
-    @objc private func handleSetTabTitle(_ notification: Notification) {
-        guard let title = notification.userInfo?["title"] as? String else { return }
-        DispatchQueue.main.async {
-            guard let controller = NSApp.keyWindow?.windowController as? BaseTerminalController else { return }
-            controller.titleOverride = title.isEmpty ? nil : title
-        }
     }
 
     @objc private func ghosttyBellDidRing(_ notification: Notification) {

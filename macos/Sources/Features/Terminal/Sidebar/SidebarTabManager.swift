@@ -1,14 +1,16 @@
 import Cocoa
 import Combine
-import GhosttyKit
 
 /// Observes the tab group of a window and publishes tab metadata for the sidebar.
+@MainActor
 class SidebarTabManager: ObservableObject {
     struct TabItem: Identifiable, Equatable {
         let id: ObjectIdentifier
         let title: String
         let pwd: String?
-        let metadata: [String: String]
+        let gitBranch: String?
+        let surfaceId: UUID?
+        let statusEntries: [TabMetadataStore.StatusEntry]
         let isSelected: Bool
         let needsAttention: Bool
         let window: NSWindow
@@ -21,12 +23,14 @@ class SidebarTabManager: ObservableObject {
 
         /// Title with bell emoji stripped (the sidebar uses its own attention indicator).
         var displayTitle: String {
-            title.hasPrefix("🔔 ") ? String(title.dropFirst(3)) : title
+            title.hasPrefix("\u{1F514} ") ? String(title.dropFirst(3)) : title
         }
 
         static func == (lhs: TabItem, rhs: TabItem) -> Bool {
             lhs.id == rhs.id && lhs.title == rhs.title && lhs.isSelected == rhs.isSelected
-                && lhs.pwd == rhs.pwd && lhs.metadata == rhs.metadata
+                && lhs.pwd == rhs.pwd && lhs.gitBranch == rhs.gitBranch
+                && lhs.surfaceId == rhs.surfaceId
+                && lhs.statusEntries == rhs.statusEntries
                 && lhs.needsAttention == rhs.needsAttention
         }
     }
@@ -104,7 +108,19 @@ class SidebarTabManager: ObservableObject {
         }
         observers.append(desktopNotifObserver)
 
-        // Poll periodically for tab group changes, title changes, pwd changes.
+        // IPC notifications (tab.notify command): trigger attention
+        let ipcNotifObserver = center.addObserver(
+            forName: .ghosttyIPCNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let w = notification.object as? NSWindow else { return }
+            self.markAttention(window: w)
+        }
+        observers.append(ipcNotifObserver)
+
+        // Poll periodically for tab group changes, title changes, pwd changes, metadata changes.
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             self?.refresh()
         }
@@ -121,6 +137,26 @@ class SidebarTabManager: ObservableObject {
         attentionWindows.remove(id)
     }
 
+    // MARK: - Git Branch
+
+    /// Read the git branch from .git/HEAD in the given directory.
+    /// Walks up to find the repo root (supports subdirectories).
+    private func gitBranch(at pwd: String) -> String? {
+        var dir = pwd
+        while dir != "/" {
+            let headPath = (dir as NSString).appendingPathComponent(".git/HEAD")
+            if let contents = try? String(contentsOfFile: headPath, encoding: .utf8) {
+                let prefix = "ref: refs/heads/"
+                if contents.hasPrefix(prefix) {
+                    return contents.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                return nil // detached HEAD
+            }
+            dir = (dir as NSString).deletingLastPathComponent
+        }
+        return nil
+    }
+
     // MARK: - Refresh
 
     func refresh() {
@@ -134,17 +170,24 @@ class SidebarTabManager: ObservableObject {
         }
 
         let selectedWindow = window.tabGroup?.selectedWindow ?? window
+        let metadataStore = TabMetadataStore.shared
 
         let newTabs = tabWindows.map { w -> TabItem in
             let controller = w.windowController as? BaseTerminalController
             let surface = controller?.focusedSurface
             let wid = ObjectIdentifier(w)
+            let sid = surface?.id
+            let pwd = surface?.pwd
+            let entries = sid.map { metadataStore.statusEntries(for: $0) } ?? []
+            let branch = pwd.flatMap { gitBranch(at: $0) }
 
             return TabItem(
                 id: wid,
                 title: w.title,
-                pwd: surface?.pwd,
-                metadata: surface?.sidebarMetadata ?? [:],
+                pwd: pwd,
+                gitBranch: branch,
+                surfaceId: sid,
+                statusEntries: entries,
                 isSelected: w === selectedWindow,
                 needsAttention: attentionWindows.contains(wid) && w !== selectedWindow,
                 window: w

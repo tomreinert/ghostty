@@ -63,6 +63,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The sidebar tab manager that tracks tabs for the sidebar view.
     private(set) var sidebarTabManager: SidebarTabManager?
 
+    /// The sidebar hosting view, kept for theme updates on config change.
+    private var sidebarHostingView: NSHostingView<SidebarView>?
+
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -506,6 +509,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
             Notification.Name.GhosttyConfigChangeKey
         ] as? Ghostty.Config else { return }
 
+        // Update sidebar theme from the new config colors
+        updateSidebarTheme(config)
+
         // If this is an app-level config update then we update some things.
         if notification.object == nil {
             // Update our derived config
@@ -553,6 +559,17 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         // Refresh sidebar across all windows in the tab group
         refreshAllSidebars()
+    }
+
+    /// Updates the sidebar theme when the terminal config changes.
+    private func updateSidebarTheme(_ config: Ghostty.Config) {
+        guard let sidebarHostingView, let sidebarTabManager else { return }
+        let newTheme = config.sidebarTheme
+        sidebarHostingView.rootView = SidebarView(
+            tabManager: sidebarTabManager,
+            theme: newTheme,
+            fields: config.sidebarFields
+        )
     }
 
     /// Refreshes the sidebar tab manager for all windows in the current tab group.
@@ -1074,10 +1091,10 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // Create the sidebar hosting view
         let sidebarHostingView = NSHostingView(rootView: SidebarView(
             tabManager: tabManager,
-            activeTabColor: ghostty.config.sidebarActiveTabColor,
-            titleFontSize: ghostty.config.sidebarTitleFontSize,
-            subtitleFontSize: ghostty.config.sidebarSubtitleFontSize
+            theme: ghostty.config.sidebarTheme,
+            fields: ghostty.config.sidebarFields
         ))
+        self.sidebarHostingView = sidebarHostingView
 
         // Build the split view: sidebar | terminal
         let splitView = NSSplitView()

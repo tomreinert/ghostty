@@ -1,12 +1,69 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - SidebarTheme
+
+struct SidebarTheme: Equatable {
+    let background: Color
+    let foreground: Color
+    let secondaryText: Color
+    let activeTabBackground: Color
+    let attentionColor: Color
+
+    /// Create from Ghostty terminal colors.
+    static func from(background: NSColor, foreground: NSColor) -> SidebarTheme {
+        let bgLuminance = background.luminance
+        let sidebarBg: Color
+        if bgLuminance > 0.5 {
+            // Light theme: darken sidebar slightly
+            sidebarBg = Color(nsColor: background.darken(by: 0.05))
+        } else {
+            // Dark theme: lighten sidebar slightly
+            sidebarBg = Color(nsColor: background.blended(withFraction: 0.08, of: NSColor.white) ?? background)
+        }
+
+        let fg = Color(nsColor: foreground)
+
+        return SidebarTheme(
+            background: sidebarBg,
+            foreground: fg,
+            secondaryText: fg.opacity(0.6),
+            activeTabBackground: fg.opacity(0.12),
+            attentionColor: .orange
+        )
+    }
+
+    /// Sensible default when no terminal colors are available yet.
+    static var `default`: SidebarTheme {
+        SidebarTheme(
+            background: Color(nsColor: .controlBackgroundColor),
+            foreground: .primary,
+            secondaryText: .secondary,
+            activeTabBackground: Color.accentColor.opacity(0.12),
+            attentionColor: .orange
+        )
+    }
+}
+
+// MARK: - SidebarField
+
+enum SidebarField: String, Hashable {
+    case title
+    case directory
+    case gitBranch = "git-branch"
+    case status
+
+    static let defaultFields: Set<SidebarField> = [.title, .directory, .gitBranch, .status]
+}
+
+// MARK: - SidebarView
+
 /// A vertical sidebar that displays the list of tabs for the current window group.
 struct SidebarView: View {
     @ObservedObject var tabManager: SidebarTabManager
-    var activeTabColor: Color?
-    var titleFontSize: CGFloat = 12
-    var subtitleFontSize: CGFloat = 10
+    var theme: SidebarTheme
+    var fields: Set<SidebarField> = SidebarField.defaultFields
+
     @State private var draggingTabID: ObjectIdentifier?
     @State private var dropTargetTabID: ObjectIdentifier?
 
@@ -14,7 +71,7 @@ struct SidebarView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                    SidebarTabCard(tab: tab, activeTabColor: activeTabColor, titleFontSize: titleFontSize, subtitleFontSize: subtitleFontSize)
+                    SidebarTabCard(tab: tab, theme: theme, fields: fields)
                         .contentShape(Rectangle())
                         .opacity(draggingTabID == tab.id ? 0.4 : 1.0)
                         .overlay(alignment: .top) {
@@ -69,9 +126,11 @@ struct SidebarView: View {
             .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .controlBackgroundColor))
+        .background(theme.background)
     }
 }
+
+// MARK: - TabDropDelegate
 
 private struct TabDropDelegate: DropDelegate {
     let tabManager: SidebarTabManager
@@ -110,71 +169,74 @@ private struct TabDropDelegate: DropDelegate {
     }
 }
 
+// MARK: - SidebarTabCard
+
 private struct SidebarTabCard: View {
     let tab: SidebarTabManager.TabItem
-    var activeTabColor: Color?
-    var titleFontSize: CGFloat = 12
-    var subtitleFontSize: CGFloat = 10
-
-    private var branch: String? { tab.metadata["branch"] }
-
-    private var activeTabBackground: Color {
-        activeTabColor?.opacity(0.25) ?? Color.accentColor.opacity(0.12)
-    }
+    let theme: SidebarTheme
+    let fields: Set<SidebarField>
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // Title row
-            HStack(spacing: 6) {
-                Text(tab.displayTitle)
-                    .font(.system(size: titleFontSize, weight: tab.isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundColor(tab.isSelected ? .primary : .secondary)
-
-                Spacer()
-
-                if tab.needsAttention {
-                    Circle()
-                        .fill(Color.blue)
-                        .frame(width: 8, height: 8)
-                }
-            }
-
-            // Info row: directory and/or git branch
-            if tab.directoryName != nil || branch != nil {
-                HStack(spacing: 10) {
-                    if let dir = tab.directoryName {
-                        Text(dir)
-                            .font(.system(size: subtitleFontSize))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    if let branch {
-                        Label(branch, systemImage: "arrow.triangle.branch")
-                            .font(.system(size: subtitleFontSize))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
+            // Title (always shown — attention dot lives here)
+            if fields.contains(.title) {
+                HStack(spacing: 6) {
+                    Text(tab.displayTitle)
+                        .font(.system(size: 12, weight: tab.isSelected ? .semibold : .regular))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .foregroundColor(tab.isSelected ? theme.foreground : theme.secondaryText)
 
                     Spacer()
+
+                    if tab.needsAttention {
+                        Circle()
+                            .fill(theme.attentionColor)
+                            .frame(width: 8, height: 8)
+                    }
                 }
             }
 
-            // Custom metadata (anything other than "branch")
-            let extraMeta = tab.metadata.filter { $0.key != "branch" }
-            if !extraMeta.isEmpty {
-                HStack(spacing: 10) {
-                    ForEach(Array(extraMeta.keys.sorted()), id: \.self) { key in
-                        if let value = extraMeta[key] {
-                            Text("\(key): \(value)")
-                                .font(.system(size: subtitleFontSize))
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
+            // Directory name
+            if fields.contains(.directory), let dir = tab.directoryName {
+                HStack(spacing: 4) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 9))
+                        .foregroundColor(theme.secondaryText)
+                    Text(dir)
+                        .font(.system(size: 10))
+                        .foregroundColor(theme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            // Git branch
+            if fields.contains(.gitBranch), let branch = tab.gitBranch {
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 9))
+                        .foregroundColor(theme.secondaryText)
+                    Text(branch)
+                        .font(.system(size: 10))
+                        .foregroundColor(theme.secondaryText)
+                        .lineLimit(1)
+                }
+            }
+
+            // Status entries
+            if fields.contains(.status), !tab.statusEntries.isEmpty {
+                ForEach(tab.statusEntries, id: \.key) { entry in
+                    HStack(spacing: 4) {
+                        if let icon = entry.icon {
+                            Image(systemName: icon)
+                                .font(.system(size: 9))
+                                .foregroundColor(theme.secondaryText)
                         }
+                        Text(entry.value)
+                            .font(.system(size: 10))
+                            .foregroundColor(theme.secondaryText)
+                            .lineLimit(1)
                     }
-                    Spacer()
                 }
             }
         }
@@ -182,9 +244,7 @@ private struct SidebarTabCard: View {
         .padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(tab.isSelected
-                    ? activeTabBackground
-                    : Color.clear)
+                .fill(tab.isSelected ? theme.activeTabBackground : Color.clear)
         )
     }
 }
