@@ -1,5 +1,8 @@
 > **Personal fork of [Ghostty](https://github.com/ghostty-org/ghostty)** with a sidebar tab system for macOS. Not affiliated with the upstream project. For the official Ghostty terminal, visit [ghostty.org](https://ghostty.org).
 
+<img width="1125" height="749" alt="ghostty-sidebar" src="https://github.com/user-attachments/assets/919a9220-4e07-4b2e-b491-c9d385b6585f" />
+
+
 ## Sidebar
 
 Replaces the native tab bar with a left sidebar showing rich tab cards:
