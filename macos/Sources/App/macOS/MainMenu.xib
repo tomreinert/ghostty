@@ -67,6 +67,7 @@
                 <outlet property="menuSplitUp" destination="Ggp-7N-GbX" id="YJF-uq-S4Y"/>
                 <outlet property="menuTerminalInspector" destination="QwP-M5-fvh" id="wJi-Dh-S9f"/>
                 <outlet property="menuToggleFullScreen" destination="8kY-Pi-KaY" id="yQg-6V-OO6"/>
+                <outlet property="menuToggleSidebar" destination="tSb-kR-q8V" id="tSb-kR-o3Y"/>
                 <outlet property="menuToggleVisibility" destination="DOX-wA-ilh" id="iBj-Bc-2bq"/>
                 <outlet property="menuUndo" destination="r83-CV-syt" id="bU9-0b-xgQ"/>
                 <outlet property="menuUseAsDefault" destination="TrB-O8-g8H" id="af4-Jh-2HU"/>
@@ -364,6 +365,12 @@
                                 </connections>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="bC9-n9-RbJ"/>
+                            <menuItem title="Toggle Sidebar" keyEquivalent="s" id="tSb-kR-q8V">
+                                <connections>
+                                    <action selector="toggleSidebarVisibility:" target="-1" id="fSb-kR-a1W"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="sSb-kR-s2X"/>
                             <menuItem title="Terminal Inspector" id="QwP-M5-fvh">
                                 <modifierMask key="keyEquivalentModifierMask"/>
                                 <connections>

@@ -65,6 +65,12 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The sidebar hosting view, kept for theme updates on config change.
     private var sidebarHostingView: NSHostingView<SidebarView>?
 
+    /// Whether the sidebar is currently collapsed.
+    private var sidebarCollapsed: Bool = UserDefaults.standard.bool(forKey: "SidebarCollapsed")
+
+    /// The thin indicator view shown when the sidebar is collapsed.
+    private var collapsedIndicator: CollapsedSidebarIndicator?
+
 
     init(_ ghostty: Ghostty.App,
          withBaseConfig base: Ghostty.SurfaceConfiguration? = nil,
@@ -1119,6 +1125,11 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
 
         window.contentView = splitView
 
+        // If sidebar should start collapsed, swap in the indicator
+        if sidebarCollapsed {
+            collapseSidebar(in: splitView, animated: false)
+        }
+
         // If we have a default size, we want to apply it.
         if let defaultSize {
             defaultSize.apply(to: window)
@@ -1170,15 +1181,116 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         ghostty.newTab(surface: surface)
     }
 
+    // MARK: Sidebar Toggle
+
+    private static let indicatorWidth: CGFloat = 6
+
+    @objc func toggleSidebarVisibility(_ sender: Any) {
+        guard let splitView = window?.contentView as? NSSplitView else { return }
+
+        sidebarCollapsed.toggle()
+        UserDefaults.standard.set(sidebarCollapsed, forKey: "SidebarCollapsed")
+
+        if sidebarCollapsed {
+            collapseSidebar(in: splitView, animated: true)
+        } else {
+            expandSidebar(in: splitView, animated: true)
+        }
+
+        // Sync collapsed state across tab group
+        syncCollapsedState()
+    }
+
+    private func collapseSidebar(in splitView: NSSplitView, animated: Bool) {
+        guard let sidebarHostingView else { return }
+
+        // Save current width before collapsing
+        let currentWidth = sidebarHostingView.frame.width
+        if currentWidth > 0 {
+            UserDefaults.standard.set(currentWidth, forKey: "SidebarWidth")
+        }
+
+        // Create indicator and swap it in as the first pane
+        let indicator = getOrCreateIndicator()
+        sidebarHostingView.removeFromSuperview()
+        let secondView = splitView.subviews.first
+        splitView.addSubview(indicator, positioned: .below, relativeTo: secondView)
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                splitView.animator().setPosition(Self.indicatorWidth, ofDividerAt: 0)
+            }
+        } else {
+            splitView.setPosition(Self.indicatorWidth, ofDividerAt: 0)
+        }
+    }
+
+    private func expandSidebar(in splitView: NSSplitView, animated: Bool) {
+        guard let sidebarHostingView else { return }
+
+        // Remove indicator, put sidebar back as the first pane
+        collapsedIndicator?.removeFromSuperview()
+        let secondView = splitView.subviews.first
+        splitView.addSubview(sidebarHostingView, positioned: .below, relativeTo: secondView)
+
+        let savedWidth = UserDefaults.standard.double(forKey: "SidebarWidth")
+        let targetWidth = savedWidth > 0 ? min(max(savedWidth, 140), 280) : 200
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                splitView.animator().setPosition(targetWidth, ofDividerAt: 0)
+            }
+        } else {
+            splitView.setPosition(targetWidth, ofDividerAt: 0)
+        }
+    }
+
+    private func getOrCreateIndicator() -> CollapsedSidebarIndicator {
+        if let existing = collapsedIndicator { return existing }
+        let indicator = CollapsedSidebarIndicator(frame: .zero)
+        indicator.baseColor = ghostty.config.backgroundNSColor
+        indicator.onExpand = { [weak self] in
+            self?.toggleSidebarVisibility(self as Any)
+        }
+        collapsedIndicator = indicator
+        return indicator
+    }
+
+    private func syncCollapsedState() {
+        guard let tabGroup = window?.tabGroup else { return }
+        for tabbedWindow in tabGroup.windows where tabbedWindow != window {
+            guard let controller = tabbedWindow.windowController as? TerminalController else { continue }
+            if controller.sidebarCollapsed != sidebarCollapsed {
+                controller.applySidebarCollapsedState(sidebarCollapsed)
+            }
+        }
+    }
+
+    /// Apply collapsed state without toggling (used for syncing across tab group).
+    private func applySidebarCollapsedState(_ collapsed: Bool) {
+        guard let splitView = window?.contentView as? NSSplitView else { return }
+        sidebarCollapsed = collapsed
+
+        if collapsed {
+            collapseSidebar(in: splitView, animated: false)
+        } else {
+            expandSidebar(in: splitView, animated: false)
+        }
+    }
+
     // MARK: NSSplitViewDelegate
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if dividerIndex == 0 { return 140 }
+        if dividerIndex == 0 { return sidebarCollapsed ? Self.indicatorWidth : 140 }
         return proposedMinimumPosition
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if dividerIndex == 0 { return 280 }
+        if dividerIndex == 0 { return sidebarCollapsed ? Self.indicatorWidth : 280 }
         return proposedMaximumPosition
     }
 
@@ -1188,7 +1300,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard let splitView = notification.object as? NSSplitView,
+        guard !sidebarCollapsed,
+              let splitView = notification.object as? NSSplitView,
               let sidebar = splitView.subviews.first else { return }
         let width = sidebar.frame.width
         if width > 0 {
@@ -1259,6 +1372,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     }
 
     private func syncSidebarWidth() {
+        if sidebarCollapsed { return }
+
         guard let splitView = window?.contentView as? NSSplitView,
               let sidebar = splitView.subviews.first else { return }
         let savedWidth = UserDefaults.standard.double(forKey: "SidebarWidth")

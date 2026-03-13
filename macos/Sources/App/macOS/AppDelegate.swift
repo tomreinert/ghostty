@@ -76,6 +76,8 @@ class AppDelegate: NSObject,
     @IBOutlet private var menuTerminalInspector: NSMenuItem?
     @IBOutlet private var menuCommandPalette: NSMenuItem?
 
+    @IBOutlet private var menuToggleSidebar: NSMenuItem?
+
     @IBOutlet private var menuEqualizeSplits: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerUp: NSMenuItem?
     @IBOutlet private var menuMoveSplitDividerDown: NSMenuItem?
