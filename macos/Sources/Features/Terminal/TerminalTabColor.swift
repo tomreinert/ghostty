@@ -47,7 +47,11 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
         case .purple:
             return .systemPurple
         case .pink:
-            return .systemPink
+            // Custom magenta-pink (~320° hue) instead of .systemPink (~345°).
+            // systemPink is only ~15° from systemRed, making them nearly
+            // indistinguishable — especially when dimmed. This gives ~40°
+            // separation from red and ~30° from purple.
+            return NSColor(red: 1.0, green: 0.2, blue: 0.6, alpha: 1.0)
         case .red:
             return .systemRed
         case .orange:

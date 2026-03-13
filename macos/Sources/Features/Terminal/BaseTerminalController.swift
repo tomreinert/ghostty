@@ -1315,6 +1315,11 @@ class BaseTerminalController: NSWindowController,
         UserDefaults.standard.set(!current, forKey: "SidebarShowCardBorder")
     }
 
+    @IBAction func toggleDimInactiveColors(_ sender: Any) {
+        let current = UserDefaults.standard.bool(forKey: "SidebarDimInactiveColors")
+        UserDefaults.standard.set(!current, forKey: "SidebarDimInactiveColors")
+    }
+
     @IBAction func splitRight(_ sender: Any) {
         guard let surface = focusedSurface?.surface else { return }
         ghostty.split(surface: surface, direction: GHOSTTY_SPLIT_DIRECTION_RIGHT)
@@ -1477,6 +1482,10 @@ extension BaseTerminalController: NSMenuItemValidation {
 
         case #selector(toggleTabBorder(_:)):
             item.state = UserDefaults.standard.bool(forKey: "SidebarShowCardBorder") ? .on : .off
+            return true
+
+        case #selector(toggleDimInactiveColors(_:)):
+            item.state = UserDefaults.standard.bool(forKey: "SidebarDimInactiveColors") ? .on : .off
             return true
 
         default:

@@ -176,6 +176,9 @@ class AppDelegate: NSObject,
             // Show the thin card border around sidebar tab cards by default.
             "SidebarShowCardBorder": true,
 
+            // Dim inactive tab colors in the sidebar (off by default).
+            "SidebarDimInactiveColors": false,
+
             // On macOS 26 RC1, the autofill heuristic controller causes unusable levels
             // of slowdowns and CPU usage in the terminal window under certain [unknown]
             // conditions. We don't know exactly why/how. This disables the full heuristic
@@ -632,6 +635,14 @@ class AppDelegate: NSObject,
         )
         tabBorderItem.setImageIfDesired(systemSymbolName: "rectangle.inset.filled")
         viewMenu.insertItem(tabBorderItem, at: insertIndex + 2)
+
+        let dimItem = NSMenuItem(
+            title: "Dim Inactive Tab Colors",
+            action: #selector(BaseTerminalController.toggleDimInactiveColors(_:)),
+            keyEquivalent: ""
+        )
+        dimItem.setImageIfDesired(systemSymbolName: "circle.lefthalf.filled")
+        viewMenu.insertItem(dimItem, at: insertIndex + 3)
     }
 
     /// Sync all of our menu item keyboard shortcuts with the Ghostty configuration.

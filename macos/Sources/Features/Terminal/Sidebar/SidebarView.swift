@@ -65,6 +65,7 @@ struct SidebarView: View {
     var fields: Set<SidebarField> = SidebarField.defaultFields
 
     @AppStorage("SidebarShowCardBorder") private var showCardBorder: Bool = true
+    @AppStorage("SidebarDimInactiveColors") private var dimInactiveColors: Bool = false
     @State private var draggingTabID: ObjectIdentifier?
     @State private var dropTargetTabID: ObjectIdentifier?
 
@@ -72,7 +73,7 @@ struct SidebarView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
-                    SidebarTabCard(tab: tab, theme: theme, fields: fields, showCardBorder: showCardBorder)
+                    SidebarTabCard(tab: tab, theme: theme, fields: fields, showCardBorder: showCardBorder, dimInactive: dimInactiveColors)
                         .contentShape(Rectangle())
                         .opacity(draggingTabID == tab.id ? 0.4 : 1.0)
                         .overlay(alignment: .top) {
@@ -119,6 +120,7 @@ struct SidebarView: View {
                             }
 
                             Toggle("Show Tab Border", isOn: $showCardBorder)
+                            Toggle("Dim Inactive Tab Colors", isOn: $dimInactiveColors)
 
                             Divider()
 
@@ -195,15 +197,16 @@ private struct SidebarTabCard: View {
     let theme: SidebarTheme
     let fields: Set<SidebarField>
     var showCardBorder: Bool = true
+    var dimInactive: Bool = false
 
     private static let cardRadius: CGFloat = 8
 
     /// The accent color for the left border strip.
-    /// Full intensity for the selected tab, dimmed for inactive tabs.
+    /// When dimming is enabled, inactive tabs use reduced opacity for a gentle dim.
     private var accentColor: Color {
         if let nsColor = tab.tabColor.displayColor {
             let base = Color(nsColor: nsColor)
-            return tab.isSelected ? base : base.opacity(0.4)
+            return (dimInactive && !tab.isSelected) ? base.opacity(0.55) : base
         }
         return Color(nsColor: .separatorColor).opacity(tab.isSelected ? 0.3 : 0.15)
     }
