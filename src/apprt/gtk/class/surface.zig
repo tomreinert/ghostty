@@ -35,6 +35,7 @@ const TitleDialog = @import("title_dialog.zig").TitleDialog;
 const Window = @import("window.zig").Window;
 const InspectorWindow = @import("inspector_window.zig").InspectorWindow;
 const i18n = @import("../../../os/i18n.zig");
+const media = @import("../media.zig");
 
 const log = std.log.scoped(.gtk_ghostty_surface);
 
@@ -1011,6 +1012,14 @@ pub const Surface = extern struct {
                 log.warn("unable to remove progress bar timer", .{});
             }
             priv.progress_bar_timer = null;
+        }
+
+        if (priv.config) |config| {
+            if (!config.get().@"progress-style") {
+                log.debug("progress_report action blocked by config", .{});
+                priv.progress_bar_overlay.as(gtk.Widget).setVisible(@intFromBool(false));
+                return;
+            }
         }
 
         const progress_bar = priv.progress_bar_overlay;
@@ -2449,34 +2458,8 @@ pub const Surface = extern struct {
                 1.0,
             );
 
-            assert(std.fs.path.isAbsolute(path));
-            const media_file = gtk.MediaFile.newForFilename(path);
-
-            // If the audio file is marked as required, we'll emit an error if
-            // there was a problem playing it. Otherwise there will be silence.
-            if (required) {
-                _ = gobject.Object.signals.notify.connect(
-                    media_file,
-                    ?*anyopaque,
-                    mediaFileError,
-                    null,
-                    .{ .detail = "error" },
-                );
-            }
-
-            // Watch for the "ended" signal so that we can clean up after
-            // ourselves.
-            _ = gobject.Object.signals.notify.connect(
-                media_file,
-                ?*anyopaque,
-                mediaFileEnded,
-                null,
-                .{ .detail = "ended" },
-            );
-
-            const media_stream = media_file.as(gtk.MediaStream);
-            media_stream.setVolume(volume);
-            media_stream.play();
+            const media_file = media.fromFilename(path) orelse break :audio;
+            media.playMediaFile(media_file, volume, required);
         }
     }
 
@@ -3471,35 +3454,6 @@ pub const Surface = extern struct {
         const priv = self.private();
         const right = priv.url_right.as(gtk.Widget);
         right.setVisible(0);
-    }
-
-    fn mediaFileError(
-        media_file: *gtk.MediaFile,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
-        const path = path: {
-            const file = media_file.getFile() orelse break :path null;
-            break :path file.getPath();
-        };
-        defer if (path) |p| glib.free(p);
-
-        const media_stream = media_file.as(gtk.MediaStream);
-        const err = media_stream.getError() orelse return;
-        log.warn("error playing bell from {s}: {s} {d} {s}", .{
-            path orelse "<<unknown>>",
-            glib.quarkToString(err.f_domain),
-            err.f_code,
-            err.f_message orelse "",
-        });
-    }
-
-    fn mediaFileEnded(
-        media_file: *gtk.MediaFile,
-        _: *gobject.ParamSpec,
-        _: ?*anyopaque,
-    ) callconv(.c) void {
-        media_file.unref();
     }
 
     fn titleDialogSet(

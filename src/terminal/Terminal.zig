@@ -5,6 +5,7 @@ const Terminal = @This();
 
 const std = @import("std");
 const build_options = @import("terminal_options");
+const lib = @import("../lib/main.zig");
 const assert = @import("../quirks.zig").inlineAssert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -22,7 +23,7 @@ const point = @import("point.zig");
 const sgr = @import("sgr.zig");
 const Tabstops = @import("Tabstops.zig");
 const color = @import("color.zig");
-const mouse_shape_pkg = @import("mouse_shape.zig");
+const mouse = @import("mouse.zig");
 const ReadonlyHandler = @import("stream_readonly.zig").Handler;
 const ReadonlyStream = @import("stream_readonly.zig").Stream;
 
@@ -34,6 +35,8 @@ const ScreenSet = @import("ScreenSet.zig");
 const Page = pagepkg.Page;
 const Cell = pagepkg.Cell;
 const Row = pagepkg.Row;
+
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
 
 const log = std.log.scoped(.terminal);
 
@@ -76,7 +79,7 @@ previous_char: ?u21 = null,
 modes: modespkg.ModeState = .{},
 
 /// The most recently set mouse shape for the terminal.
-mouse_shape: mouse_shape_pkg.MouseShape = .text,
+mouse_shape: mouse.Shape = .text,
 
 /// These are just a packed set of flags we may set on the terminal.
 flags: packed struct {
@@ -93,8 +96,8 @@ flags: packed struct {
     /// set mode in modes. You can't get the right event/format to use
     /// based on modes alone because modes don't show you what order
     /// this was called so we have to track it separately.
-    mouse_event: MouseEvents = .none,
-    mouse_format: MouseFormat = .x10,
+    mouse_event: mouse.Event = .none,
+    mouse_format: mouse.Format = .x10,
 
     /// Set via the XTSHIFTESCAPE sequence. If true (XTSHIFTESCAPE = 1)
     /// then we want to capture the shift key for the mouse protocol
@@ -162,31 +165,6 @@ pub const Dirty = packed struct {
 
     /// Set when the pre-edit is modified.
     preedit: bool = false,
-};
-
-/// The event types that can be reported for mouse-related activities.
-/// These are all mutually exclusive (hence in a single enum).
-pub const MouseEvents = enum(u3) {
-    none = 0,
-    x10 = 1, // 9
-    normal = 2, // 1000
-    button = 3, // 1002
-    any = 4, // 1003
-
-    /// Returns true if this event sends motion events.
-    pub fn motion(self: MouseEvents) bool {
-        return self == .button or self == .any;
-    }
-};
-
-/// The format of mouse events when enabled.
-/// These are all mutually exclusive (hence in a single enum).
-pub const MouseFormat = enum(u3) {
-    x10 = 0,
-    utf8 = 1, // 1005
-    sgr = 2, // 1006
-    urxvt = 3, // 1015
-    sgr_pixels = 4, // 1016
 };
 
 /// Scrolling region is the area of the screen designated where scrolling
@@ -271,7 +249,7 @@ pub fn vtHandler(self: *Terminal) ReadonlyHandler {
 }
 
 /// The general allocator we should use for this terminal.
-fn gpa(self: *Terminal) Allocator {
+pub fn gpa(self: *Terminal) Allocator {
     return self.screens.active.alloc;
 }
 
@@ -1704,7 +1682,7 @@ pub fn scrollUp(self: *Terminal, count: usize) !void {
 }
 
 /// Options for scrolling the viewport of the terminal grid.
-pub const ScrollViewport = union(enum) {
+pub const ScrollViewport = union(Tag) {
     /// Scroll to the top of the scrollback
     top,
 
@@ -1713,6 +1691,23 @@ pub const ScrollViewport = union(enum) {
 
     /// Scroll by some delta amount, up is negative.
     delta: isize,
+
+    pub const Tag = lib.Enum(lib_target, &.{
+        "top",
+        "bottom",
+        "delta",
+    });
+
+    const c_union = lib.TaggedUnion(
+        lib_target,
+        @This(),
+        // Padding: largest variant is isize (8 bytes on 64-bit).
+        // Use [2]u64 (16 bytes) for future expansion.
+        [2]u64,
+    );
+    pub const C = c_union.C;
+    pub const CValue = c_union.CValue;
+    pub const cval = c_union.cval;
 };
 
 /// Scroll the viewport of the terminal grid.

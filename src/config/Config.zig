@@ -749,7 +749,7 @@ foreground: Color = .{ .r = 0xFF, .g = 0xFF, .b = 0xFF },
 /// The null character (U+0000) is always treated as a boundary and does not
 /// need to be included in this configuration.
 ///
-/// Default: ` \t'"│`|:;,()[]{}<>$`
+/// Default: `` \t'"│`|:;,()[]{}<>$ ``
 ///
 /// To add or remove specific characters, you can set this to a custom value.
 /// For example, to treat semicolons as part of words:
@@ -1972,7 +1972,16 @@ keybind: Keybinds = .{},
 /// apply. The other padding is applied first and may affect how many grid cells
 /// actually exist, and this is applied last in order to balance the padding
 /// given a certain viewport size and grid cell size.
-@"window-padding-balance": bool = false,
+///
+/// Valid values are:
+///
+/// * `false` - No balancing is applied.
+/// * `true` - Balance the padding, but cap the top padding to avoid
+///   excessive space above the first row. Any excess is shifted to the
+///   bottom.
+/// * `equal` - Balance the padding equally on all sides without any
+///   top-padding cap. (Available since: 1.4.0)
+@"window-padding-balance": WindowPaddingBalance = .false,
 
 /// The color of the padding area of the window. Valid values are:
 ///
@@ -2687,7 +2696,13 @@ keybind: Keybinds = .{},
 /// The default value is `main` because this is the recommended screen
 /// by the operating system.
 ///
-/// Only implemented on macOS.
+/// On macOS, `macos-menu-bar` uses the screen containing the menu bar.
+/// On Linux/Wayland, `macos-menu-bar` is treated as equivalent to `main`.
+///
+/// Note: On Linux, there is no universal concept of a "primary" monitor.
+/// Ghostty uses the compositor-reported primary output when available and
+/// falls back to the first monitor reported by GDK if no primary output can
+/// be resolved.
 @"quick-terminal-screen": QuickTerminalScreen = .main,
 
 /// Duration (in seconds) of the quick terminal enter and exit animation.
@@ -3653,6 +3668,11 @@ else
 /// If `true` (default), applications running in the terminal can show desktop
 /// notifications using certain escape sequences such as OSC 9 or OSC 777.
 @"desktop-notifications": bool = true,
+
+/// If `true` (default), applications running in the terminal can show
+/// graphical progress bars using the ConEmu OSC 9;4 escape sequence.
+/// If `false`, progress bar sequences are silently ignored.
+@"progress-style": bool = true,
 
 /// Modifies the color used for bold text in the terminal.
 ///
@@ -5231,6 +5251,12 @@ pub const Fullscreen = enum(c_int) {
     @"non-native",
     @"non-native-visible-menu",
     @"non-native-padded-notch",
+};
+
+pub const WindowPaddingBalance = enum {
+    false,
+    true,
+    equal,
 };
 
 pub const WindowPaddingColor = enum {

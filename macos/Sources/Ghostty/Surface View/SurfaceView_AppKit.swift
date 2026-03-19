@@ -119,6 +119,10 @@ extension Ghostty {
         // Whether the mouse is currently over this surface
         @Published private(set) var mouseOverSurface: Bool = false
 
+        // The last known mouse location in the surface's local coordinate space,
+        // used by overlays such as the split drag handle reveal region.
+        @Published private(set) var mouseLocationInSurface: CGPoint?
+
         // Whether the cursor is currently visible (not hidden by typing, etc.)
         @Published private(set) var cursorVisible: Bool = true
 
@@ -952,13 +956,15 @@ extension Ghostty {
             mouseOverSurface = true
             super.mouseEntered(with: event)
 
+            let pos = self.convert(event.locationInWindow, from: nil)
+            mouseLocationInSurface = pos
+
             guard let surfaceModel else { return }
 
             // On mouse enter we need to reset our cursor position. This is
             // super important because we set it to -1/-1 on mouseExit and
             // lots of mouse logic (i.e. whether to send mouse reports) depend
             // on the position being in the viewport if it is.
-            let pos = self.convert(event.locationInWindow, from: nil)
             let mouseEvent = Ghostty.Input.MousePosEvent(
                 x: pos.x,
                 y: frame.height - pos.y,
@@ -969,6 +975,7 @@ extension Ghostty {
 
         override func mouseExited(with event: NSEvent) {
             mouseOverSurface = false
+            mouseLocationInSurface = nil
             guard let surfaceModel else { return }
 
             // If the mouse is being dragged then we don't have to emit
@@ -988,10 +995,12 @@ extension Ghostty {
         }
 
         override func mouseMoved(with event: NSEvent) {
+            let pos = self.convert(event.locationInWindow, from: nil)
+            mouseLocationInSurface = pos
+
             guard let surfaceModel else { return }
 
             // Convert window position to view position. Note (0, 0) is bottom left.
-            let pos = self.convert(event.locationInWindow, from: nil)
             let mouseEvent = Ghostty.Input.MousePosEvent(
                 x: pos.x,
                 y: frame.height - pos.y,
@@ -1061,7 +1070,7 @@ extension Ghostty {
 
             // If the user has force click enabled then we do a quick look. There
             // is no public API for this as far as I can tell.
-            guard UserDefaults.standard.bool(forKey: "com.apple.trackpad.forceClick") else { return }
+            guard UserDefaults.ghostty.bool(forKey: "com.apple.trackpad.forceClick") else { return }
             quickLook(with: event)
         }
 
@@ -1256,7 +1265,8 @@ extension Ghostty {
                    keyTables.isEmpty,
                    bindingFlags.isDisjoint(with: [.all, .performable]),
                    bindingFlags.contains(.consumed) {
-                    if let menu = NSApp.mainMenu, menu.performKeyEquivalent(with: event) {
+                    if let appDelegate = NSApp.delegate as? AppDelegate,
+                       appDelegate.performGhosttyBindingMenuKeyEquivalent(with: event) {
                         return true
                     }
                 }

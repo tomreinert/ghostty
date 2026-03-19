@@ -772,6 +772,14 @@ extension Ghostty {
             let buffer = UnsafeBufferPointer(start: v.commands, count: v.len)
             return buffer.map { Ghostty.Command(cValue: $0) }
         }
+
+        var progressStyle: Bool {
+            guard let config = self.config else { return true }
+            var v = true
+            let key = "progress-style"
+            _ = ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8)))
+            return v
+        }
     }
 }
 

@@ -29,8 +29,11 @@ alaasdk
 alanmoyano
 alexfeijoo44
 alexjuca
+alosarjos
 amadeus
 andrejdaskalov
+anhthang
+anmitalidev
 anthonyzhoon
 atomk
 balazs-szucs
@@ -47,6 +50,7 @@ charliie-dev
 chernetskyi
 chronologos
 cmwetherell
+crayxt
 craziestowl
 curtismoncoq
 d-dudas
@@ -54,7 +58,9 @@ daiimus
 damyanbogoev
 danulqua
 dariogriffo
+davidsanchez222
 dervedro
+devsunb
 diaaeddin
 dmehala
 doprz
@@ -62,9 +68,11 @@ douglance
 douglas
 drepper
 dzhlobo
+ekaterinepapava
 elias8
 ephemera
 eriksremess
+faukah
 filip7
 flou
 francescarpi
@@ -76,12 +84,17 @@ gpanders
 guilhermetk
 hakonhagland
 halosatrio
+heaths
+heddxh heddxh
+-highimpact-dev Disrespectful AI user
 hqnna
 hulet
 icodesign
+j0hnm4r5
 jacobsandlund
 jake-stewart
 jcollie
+jesusvazquez
 jguthmiller
 jmcgover
 johnslavik
@@ -108,6 +121,7 @@ markdorison
 markhuot
 marrocco-simone
 matkotiric
+micaeljarniac
 michielvk
 miguelelgallo
 mihi314
@@ -132,12 +146,15 @@ pangoraw
 pauley-unsaturated
 peilingjiang
 peterdavehello
+philocalyst
 phush0
 piedrahitac
 pluiedev
 pouwerkerk
+poweruser64
 prakhar54-byte
 priyans-hu
+puzza007
 qwerasd205
 reo101
 rgehan
@@ -161,6 +178,8 @@ uhojin
 uzaaft
 vaughanandrews
 vlsi
+wyounas
 yamshta
+ydah
 zenyr
 zeshi09

@@ -1,13 +1,39 @@
 const std = @import("std");
 const build_options = @import("terminal_options");
 const lib = @import("../lib/main.zig");
+const lib_target: lib.Target = if (build_options.c_abi) .c else .zig;
+
+/// The event types that can be reported for mouse-related activities.
+/// These are all mutually exclusive (hence in a single enum).
+pub const Event = lib.Enum(lib_target, &.{
+    "none",
+    "x10", // 9
+    "normal", // 1000
+    "button", // 1002
+    "any", // 1003
+});
+
+/// Returns true if this event sends motion events.
+pub fn eventSendsMotion(event: Event) bool {
+    return event == .button or event == .any;
+}
+
+/// The format of mouse events when enabled.
+/// These are all mutually exclusive (hence in a single enum).
+pub const Format = lib.Enum(lib_target, &.{
+    "x10",
+    "utf8", // 1005
+    "sgr", // 1006
+    "urxvt", // 1015
+    "sgr_pixels", // 1016
+});
 
 /// The possible cursor shapes. Not all app runtimes support these shapes.
 /// The shapes are always based on the W3C supported cursor styles so we
 /// can have a cross platform list.
 //
 // Must be kept in sync with ghostty_cursor_shape_e
-pub const MouseShape = enum(c_int) {
+pub const Shape = enum(c_int) {
     default,
     context_menu,
     help,
@@ -44,7 +70,7 @@ pub const MouseShape = enum(c_int) {
     zoom_out,
 
     /// Build cursor shape from string or null if its unknown.
-    pub fn fromString(v: []const u8) ?MouseShape {
+    pub fn fromString(v: []const u8) ?Shape {
         return string_map.get(v);
     }
 
@@ -57,7 +83,7 @@ pub const MouseShape = enum(c_int) {
 
         break :gtk switch (@import("../build_config.zig").app_runtime) {
             .gtk => @import("gobject").ext.defineEnum(
-                MouseShape,
+                Shape,
                 .{ .name = "GhosttyMouseShape" },
             ),
 
@@ -66,11 +92,11 @@ pub const MouseShape = enum(c_int) {
     };
 
     test "ghostty.h MouseShape" {
-        try lib.checkGhosttyHEnum(MouseShape, "GHOSTTY_MOUSE_SHAPE_");
+        try lib.checkGhosttyHEnum(Shape, "GHOSTTY_MOUSE_SHAPE_");
     }
 };
 
-const string_map = std.StaticStringMap(MouseShape).initComptime(.{
+const string_map = std.StaticStringMap(Shape).initComptime(.{
     // W3C
     .{ "default", .default },
     .{ "context-menu", .context_menu },
@@ -134,7 +160,7 @@ const string_map = std.StaticStringMap(MouseShape).initComptime(.{
 
 test "cursor shape from string" {
     const testing = std.testing;
-    try testing.expectEqual(MouseShape.default, MouseShape.fromString("default").?);
+    try testing.expectEqual(Shape.default, Shape.fromString("default").?);
 }
 
 test {
