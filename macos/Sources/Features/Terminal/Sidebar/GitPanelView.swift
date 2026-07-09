@@ -9,7 +9,6 @@ struct GitPanelView: View {
 
     @AppStorage("SidebarGitPanelCollapsed") private var collapsed = false
     @State private var commitMessage = ""
-    @State private var hoverBranch = false
     @State private var hoverCollapse = false
     @State private var branchAnchor: NSView?
     @State private var menuPresenter = BranchMenuPresenter()
@@ -107,16 +106,11 @@ struct GitPanelView: View {
             .padding(.horizontal, 4)
             .frame(height: 20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(hoverBranch ? theme.foreground.opacity(0.08) : Color.clear)
-            )
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(model.isBusy)
         .background(NSViewGrabber { branchAnchor = $0 })
-        .onHover { hoverBranch = $0 }
     }
 
     // MARK: - Sync (ahead/behind, pull/push)
