@@ -9,6 +9,10 @@ struct GitPanelView: View {
 
     @AppStorage("SidebarGitPanelCollapsed") private var collapsed = false
     @State private var commitMessage = ""
+    @State private var hoverBranch = false
+    @State private var hoverCollapse = false
+    @State private var branchAnchor: NSView?
+    @State private var menuPresenter = BranchMenuPresenter()
 
     private static let maxVisibleFiles = 10
 
@@ -41,7 +45,9 @@ struct GitPanelView: View {
     // MARK: - Header (branch + collapse)
 
     private var header: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
+            // The branch menu owns most of the row; collapse is a compact
+            // rectangular button on the right.
             branchMenu
 
             if model.isBusy {
@@ -50,91 +56,67 @@ struct GitPanelView: View {
                     .scaleEffect(0.7)
             }
 
-            // The whole rest of the header row is the collapse toggle,
-            // so the click target is generous.
+            if collapsed && !model.changes.isEmpty {
+                Text("\(model.changes.count)")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(theme.background)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(theme.secondaryText))
+            }
+
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) { collapsed.toggle() }
             } label: {
-                HStack(spacing: 6) {
-                    Spacer(minLength: 0)
-
-                    if collapsed && !model.changes.isEmpty {
-                        Text("\(model.changes.count)")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundColor(theme.background)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(theme.secondaryText))
-                    }
-
-                    Image(systemName: collapsed ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(theme.secondaryText)
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
+                Image(systemName: collapsed ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(theme.secondaryText)
+                    .frame(width: 24, height: 20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(hoverCollapse ? theme.foreground.opacity(0.1) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
+            .onHover { hoverCollapse = $0 }
         }
     }
 
-    private static let maxInlineBranches = 10
-
+    /// A plain full-width button that pops a native NSMenu. SwiftUI's Menu
+    /// neither stretches to fill the row nor reports hover reliably.
     private var branchMenu: some View {
-        Menu {
-            Button("New Branch…") { promptNewBranch() }
-            Button("Pull") { model.pull() }
-                .disabled(!model.hasUpstream)
-            Button("Push") { model.push() }
-
-            Divider()
-
-            // Branches are sorted by most recent commit; show the first
-            // few inline and tuck the long tail into a submenu.
-            ForEach(model.branches.prefix(Self.maxInlineBranches), id: \.self) { name in
-                branchMenuItem(name)
-            }
-            if model.branches.count > Self.maxInlineBranches {
-                Menu("All Branches") {
-                    ForEach(model.branches.dropFirst(Self.maxInlineBranches), id: \.self) { name in
-                        branchMenuItem(name)
-                    }
-                }
-            }
-        } label: {
-            branchMenuLabel
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .disabled(model.isBusy)
-    }
-
-    @ViewBuilder
-    private func branchMenuItem(_ name: String) -> some View {
-        let isCurrent = name == model.branch
         Button {
-            model.checkout(name)
+            guard let anchor = branchAnchor else { return }
+            menuPresenter.model = model
+            menuPresenter.onNewBranch = { promptNewBranch() }
+            menuPresenter.show(relativeTo: anchor)
         } label: {
-            if isCurrent {
-                Label(name, systemImage: "checkmark")
-            } else {
-                Text(name)
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 10))
+                Text(model.isDetached ? "detached" : (model.branch ?? "…"))
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundColor(theme.secondaryText)
+                Spacer(minLength: 0)
             }
+            .foregroundColor(theme.foreground)
+            .padding(.horizontal, 4)
+            .frame(height: 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(hoverBranch ? theme.foreground.opacity(0.08) : Color.clear)
+            )
+            .contentShape(Rectangle())
         }
-        .disabled(isCurrent)
-    }
-
-    private var branchMenuLabel: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.triangle.branch")
-                .font(.system(size: 10))
-            Text(model.isDetached ? "detached" : (model.branch ?? "…"))
-                .font(.system(size: 11, weight: .semibold))
-                .lineLimit(1)
-        }
-        .foregroundColor(theme.foreground)
+        .buttonStyle(.plain)
+        .disabled(model.isBusy)
+        .background(NSViewGrabber { branchAnchor = $0 })
+        .onHover { hoverBranch = $0 }
     }
 
     // MARK: - Sync (ahead/behind, pull/push)
@@ -308,4 +290,98 @@ struct GitPanelView: View {
             }
         }
     }
+}
+
+// MARK: - BranchMenuPresenter
+
+/// Builds and presents the native branch menu for the git panel.
+@MainActor
+final class BranchMenuPresenter: NSObject {
+    var model: GitPanelModel?
+    var onNewBranch: (() -> Void)?
+
+    private static let maxInlineBranches = 10
+
+    func show(relativeTo view: NSView) {
+        guard let model else { return }
+
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let newBranch = NSMenuItem(title: "New Branch…", action: #selector(newBranchAction), keyEquivalent: "")
+        newBranch.target = self
+        menu.addItem(newBranch)
+
+        let pull = NSMenuItem(title: "Pull", action: #selector(pullAction), keyEquivalent: "")
+        pull.target = self
+        pull.isEnabled = model.hasUpstream
+        menu.addItem(pull)
+
+        let push = NSMenuItem(title: "Push", action: #selector(pushAction), keyEquivalent: "")
+        push.target = self
+        menu.addItem(push)
+
+        menu.addItem(.separator())
+
+        // Branches are sorted by most recent commit; show the first few
+        // inline and tuck the long tail into a submenu.
+        let inline = model.branches.prefix(Self.maxInlineBranches)
+        let overflow = model.branches.dropFirst(Self.maxInlineBranches)
+
+        for name in inline {
+            menu.addItem(branchItem(name, current: model.branch))
+        }
+        if !overflow.isEmpty {
+            let more = NSMenuItem(title: "All Branches", action: nil, keyEquivalent: "")
+            let submenu = NSMenu()
+            submenu.autoenablesItems = false
+            for name in overflow {
+                submenu.addItem(branchItem(name, current: model.branch))
+            }
+            more.submenu = submenu
+            menu.addItem(more)
+        }
+
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: view.bounds.maxY + 4),
+            in: view
+        )
+    }
+
+    private func branchItem(_ name: String, current: String?) -> NSMenuItem {
+        let item = NSMenuItem(title: name, action: #selector(checkoutAction(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = name
+        if name == current {
+            item.state = .on
+            item.isEnabled = false
+        }
+        return item
+    }
+
+    @objc private func checkoutAction(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        model?.checkout(name)
+    }
+
+    @objc private func pullAction() { model?.pull() }
+    @objc private func pushAction() { model?.push() }
+    @objc private func newBranchAction() { onNewBranch?() }
+}
+
+// MARK: - NSViewGrabber
+
+/// Invisible helper that hands its backing NSView to SwiftUI, used as a
+/// positioning anchor for native menus.
+private struct NSViewGrabber: NSViewRepresentable {
+    let onGrab: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { onGrab(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
