@@ -63,6 +63,8 @@ struct SidebarView: View {
     @ObservedObject var tabManager: SidebarTabManager
     var theme: SidebarTheme
     var fields: Set<SidebarField> = SidebarField.defaultFields
+    /// Git panel model; nil when the panel is disabled via `sidebar-git`.
+    var gitModel: GitPanelModel?
 
     @AppStorage("SidebarShowCardBorder") private var showCardBorder: Bool = true
     @AppStorage("SidebarDimInactiveColors") private var dimInactiveColors: Bool = false
@@ -70,6 +72,21 @@ struct SidebarView: View {
     @State private var dropTargetTabID: ObjectIdentifier?
 
     var body: some View {
+        VStack(spacing: 0) {
+            tabList
+
+            if let gitModel {
+                GitPanelView(model: gitModel, theme: theme)
+                    .onReceive(tabManager.$tabs) { tabs in
+                        gitModel.pwd = tabs.first(where: { $0.isSelected })?.pwd
+                    }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.background)
+    }
+
+    private var tabList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(tabManager.tabs.enumerated()), id: \.element.id) { index, tab in
@@ -146,8 +163,6 @@ struct SidebarView: View {
             .padding(.horizontal, 8)
             .padding(.top, 8)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.background)
     }
 }
 

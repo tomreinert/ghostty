@@ -28,3 +28,6 @@ vgcore.*
 
 
 CLAUDE.md
+zig-pkg/
+.playwright-mcp/
+.zig-cache-fresh/

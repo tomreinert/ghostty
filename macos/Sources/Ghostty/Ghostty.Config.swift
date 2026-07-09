@@ -595,6 +595,17 @@ extension Ghostty {
             return fields.isEmpty ? SidebarField.defaultFields : fields
         }
 
+        /// Whether to show the git panel at the bottom of the sidebar.
+        var sidebarGit: Bool {
+            guard let config = self.config else { return true }
+            var v = false
+            let key = "sidebar-git"
+            guard ghostty_config_get(config, &v, key, UInt(key.lengthOfBytes(using: .utf8))) else {
+                return true
+            }
+            return v
+        }
+
         #if canImport(AppKit)
         var quickTerminalPosition: QuickTerminalPosition {
             guard let config = self.config else { return .top }

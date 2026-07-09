@@ -62,6 +62,9 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
     /// The sidebar tab manager that tracks tabs for the sidebar view.
     private(set) var sidebarTabManager: SidebarTabManager?
 
+    /// Model backing the sidebar git panel, created lazily when `sidebar-git` is enabled.
+    private var gitPanelModel: GitPanelModel?
+
     /// The sidebar hosting view, kept for theme updates on config change.
     private var sidebarHostingView: NSHostingView<SidebarView>?
 
@@ -568,8 +571,18 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         sidebarHostingView.rootView = SidebarView(
             tabManager: sidebarTabManager,
             theme: newTheme,
-            fields: config.sidebarFields
+            fields: config.sidebarFields,
+            gitModel: gitPanelModel(for: config)
         )
+    }
+
+    /// Returns the git panel model when enabled by config, creating it on first use.
+    private func gitPanelModel(for config: Ghostty.Config) -> GitPanelModel? {
+        guard config.sidebarGit else { return nil }
+        if let gitPanelModel { return gitPanelModel }
+        let model = GitPanelModel()
+        gitPanelModel = model
+        return model
     }
 
     /// Refreshes the sidebar tab manager for all windows in the current tab group.
@@ -1098,7 +1111,8 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         let sidebarHostingView = NSHostingView(rootView: SidebarView(
             tabManager: tabManager,
             theme: ghostty.config.sidebarTheme,
-            fields: ghostty.config.sidebarFields
+            fields: ghostty.config.sidebarFields,
+            gitModel: gitPanelModel(for: ghostty.config)
         ))
         self.sidebarHostingView = sidebarHostingView
 
