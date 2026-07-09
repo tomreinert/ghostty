@@ -79,21 +79,29 @@ struct GitPanelView: View {
         }
     }
 
+    private static let maxInlineBranches = 10
+
     private var branchMenu: some View {
         Menu {
-            ForEach(model.branches, id: \.self) { name in
-                branchMenuItem(name)
-            }
-
-            Divider()
-
             Button("New Branch…") { promptNewBranch() }
-
-            Divider()
-
             Button("Pull") { model.pull() }
                 .disabled(!model.hasUpstream)
             Button("Push") { model.push() }
+
+            Divider()
+
+            // Branches are sorted by most recent commit; show the first
+            // few inline and tuck the long tail into a submenu.
+            ForEach(model.branches.prefix(Self.maxInlineBranches), id: \.self) { name in
+                branchMenuItem(name)
+            }
+            if model.branches.count > Self.maxInlineBranches {
+                Menu("All Branches") {
+                    ForEach(model.branches.dropFirst(Self.maxInlineBranches), id: \.self) { name in
+                        branchMenuItem(name)
+                    }
+                }
+            }
         } label: {
             branchMenuLabel
         }
