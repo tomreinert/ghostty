@@ -1,4 +1,4 @@
-**Personal fork of [Ghostty](https://github.com/ghostty-org/ghostty)** with a sidebar tab system for macOS. For the official Ghostty terminal, visit [ghostty.org](https://ghostty.org). All credit goes to them.
+**Personal fork of [Ghostty](https://github.com/ghostty-org/ghostty)** with a sidebar tab system and a built-in git panel for macOS. For the official Ghostty terminal, visit [ghostty.org](https://ghostty.org). All credit goes to them.
 
 🧪 **Experimental**  
 Please note that this is experimental and I built it for my own use. It works fine for me, but feel free and try to break it.
