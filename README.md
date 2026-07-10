@@ -11,19 +11,23 @@ Please note that this is experimental and I built it for my own use. It works fi
 
 ## Sidebar
 
-Replaces the native tab bar with a left sidebar showing rich tab cards:
+Replaces the native tab bar with a left sidebar. The top shows rich tab cards; a [git panel](#git-panel) is pinned to the bottom.
 
 - **Title, directory, git branch** — git branch detected automatically, no setup needed
 - **Custom status entries** — show ports, environments, or any metadata via CLI
 - **Attention indicators** — orange dot on tabs with notifications or bell
 - **Drag-and-drop** — reorder tabs by dragging
 - **Theme-aware** — colors derived from your terminal theme
+- **Git panel** — branch, changes, and commit / push / pull for the selected tab's repo ([details](#git-panel))
 
 ### Config
 
 ```
-# Choose which fields to show (default: all)
+# Choose which tab-card fields to show (default: all)
 sidebar-fields = title,directory,git-branch,status
+
+# Show the git panel at the bottom of the sidebar (default: true)
+sidebar-git = true
 ```
 
 ### CLI
@@ -56,10 +60,6 @@ A small git panel pinned to the bottom of the sidebar, scoped to the selected ta
 - **Changes** — pending files with colour-coded status (`M` modified, `A` added, `D` deleted, `?` untracked, `U` conflict)
 - **Click to open** — click a file to open it in your editor via `$VISUAL`/`$EDITOR` (e.g. Cursor, VS Code)
 
-This one is especially personal, built around how I work day to day. If it's not for you, turn it off:
-
-```
-sidebar-git = false
-```
+This one is especially personal, built around how I work day to day. If it's not for you, turn it off with `sidebar-git = false` (see [Config](#config) above).
 
 ---
