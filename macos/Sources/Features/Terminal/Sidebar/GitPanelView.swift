@@ -191,50 +191,88 @@ struct GitPanelView: View {
         }
     }
 
-    /// Open a changed file in the user's editor. Prefers $VISUAL/$EDITOR (e.g.
-    /// `cursor`, `code`), falling back to the default app for the file type.
+    /// The user's editor, resolved from $VISUAL/$EDITOR.
+    private struct ResolvedEditor {
+        /// Full editor command, e.g. "cursor --wait -r" (empty if none set).
+        var command: String
+        /// The .app bundle the editor's CLI lives in, e.g. "/Applications/Cursor.app"
+        /// (empty for terminal editors like vim, or if it couldn't be resolved).
+        var appPath: String
+    }
+
+    /// Open a changed file in the user's editor ($VISUAL/$EDITOR). For a GUI
+    /// editor we hand the file to its running .app so it reuses the open window;
+    /// terminal editors are launched via the shell; otherwise the OS default.
     private func open(_ change: GitPanelModel.FileChange) {
         guard let root = model.repoRoot else { return }
         let fullPath = (root as NSString).appendingPathComponent(change.path)
         Task.detached {
             let editor = Self.resolveEditorEnv()
-            if editor.isEmpty {
-                // No $EDITOR/$VISUAL configured: fall back to the OS default app,
+            if !editor.appPath.isEmpty {
+                // GUI editor: route the file through its .app bundle. The cursor/
+                // code CLI can only target the running window when launched from a
+                // terminal *inside* the editor (via VSCODE_IPC_HOOK_CLI), so from
+                // Ghostty it would spawn a new window. Handing the file to the app
+                // reuses the running instance, like `open -a`.
+                await MainActor.run {
+                    Self.openWithApp(URL(filePath: fullPath), appPath: editor.appPath)
+                }
+            } else if !editor.command.isEmpty {
+                Self.launchInEditor(editor: editor.command, path: fullPath)
+            } else {
+                // No $EDITOR/$VISUAL set: fall back to the OS default app,
                 // matching how a file link clicked in the terminal opens.
                 await MainActor.run { Self.openWithDefaultApp(fullPath) }
-            } else {
-                Self.launchInEditor(editor: editor, path: fullPath)
             }
         }
     }
 
-    /// Resolve the user's editor from $VISUAL/$EDITOR. Ghostty is a GUI app and
-    /// doesn't inherit the shell profile's environment, so we source it through
-    /// a login+interactive shell. The value is wrapped in \1 markers so noisy
+    /// Resolve $VISUAL/$EDITOR and, if it's a GUI editor, the .app bundle its CLI
+    /// lives in. Ghostty is a GUI app and doesn't inherit the shell profile's
+    /// environment, so we source it through a login+interactive shell (which also
+    /// puts the editor's CLI on PATH). Values are wrapped in \1 markers so noisy
     /// shell profiles (banners, etc.) can't corrupt what we read back.
-    private static func resolveEditorEnv() -> String {
+    private static func resolveEditorEnv() -> ResolvedEditor {
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-ilc", #"printf '\1%s\1' "${VISUAL:-$EDITOR}""#]
+        // Resolve the editor, then follow its CLI symlink to the containing .app.
+        // perl provides a portable realpath (BSD readlink lacks -f).
+        process.arguments = ["-ilc", #"ed="${VISUAL:-$EDITOR}"; cmd="${ed%% *}"; bin="$(command -v "$cmd" 2>/dev/null)"; app=""; if [ -n "$bin" ]; then rp="$(/usr/bin/perl -MCwd -e 'print Cwd::abs_path($ARGV[0])' "$bin" 2>/dev/null)"; case "$rp" in *.app/*) app="${rp%%.app/*}.app";; esac; fi; printf '\1%s\1%s\1' "$ed" "$app""#]
         let out = Pipe()
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
-        do { try process.run() } catch { return "" }
+        do { try process.run() } catch { return ResolvedEditor(command: "", appPath: "") }
         let data = out.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard let text = String(data: data, encoding: .utf8) else { return "" }
+        guard let text = String(data: data, encoding: .utf8) else {
+            return ResolvedEditor(command: "", appPath: "")
+        }
+        // Layout between markers: <noise>\1<editor>\1<app>\1<noise>
         let parts = text.components(separatedBy: "\u{01}")
-        guard parts.count >= 2 else { return "" }
-        return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard parts.count >= 3 else { return ResolvedEditor(command: "", appPath: "") }
+        return ResolvedEditor(
+            command: parts[1].trimmingCharacters(in: .whitespacesAndNewlines),
+            appPath: parts[2].trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    /// Open the file in a specific running/known application bundle, reusing the
+    /// running instance (the AppKit equivalent of `open -a`).
+    private static func openWithApp(_ fileURL: URL, appPath: String) {
+        NSWorkspace.shared.open(
+            [fileURL],
+            withApplicationAt: URL(fileURLWithPath: appPath),
+            configuration: NSWorkspace.OpenConfiguration()
+        )
     }
 
     /// Launch the file in the resolved editor via a login+interactive shell, so
-    /// the editor's CLI (cursor/code/etc.) is on PATH. The editor string is
-    /// split into words here and passed as separate args: zsh does not
-    /// word-split unquoted parameter expansions, so `exec $EDITOR` would treat
-    /// "cursor --wait" as a single command. `exec "$@"` avoids that entirely.
+    /// the editor's CLI is on PATH. Used for editors not backed by a .app. The
+    /// editor string is split into words here and passed as separate args: zsh
+    /// does not word-split unquoted parameter expansions, so `exec $EDITOR`
+    /// would treat "cursor --wait" as one command. `exec "$@"` avoids that.
     private static func launchInEditor(editor: String, path: String) {
         let words = editor.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
         guard !words.isEmpty else { return }
