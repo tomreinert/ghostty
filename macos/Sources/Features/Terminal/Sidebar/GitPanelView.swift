@@ -165,19 +165,12 @@ struct GitPanelView: View {
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 ForEach(model.changes.prefix(Self.maxVisibleFiles)) { change in
-                    HStack(spacing: 5) {
-                        Text(String(change.status))
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundColor(statusColor(change.status))
-                            .frame(width: 10)
-                        Text(change.fileName)
-                            .font(.system(size: 10))
-                            .foregroundColor(theme.foreground.opacity(0.85))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(change.path)
-                        Spacer(minLength: 0)
-                    }
+                    FileRow(
+                        change: change,
+                        theme: theme,
+                        statusColor: statusColor(change.status),
+                        onOpen: { open(change) }
+                    )
                 }
                 if model.changes.count > Self.maxVisibleFiles {
                     Text("+ \(model.changes.count - Self.maxVisibleFiles) more")
@@ -195,6 +188,25 @@ struct GitPanelView: View {
         case "D": return .red
         case "U": return .purple
         default: return .orange  // M, R, C
+        }
+    }
+
+    /// Open a changed file in the user's default editor, mirroring how Ghostty
+    /// opens a file link clicked in the terminal (see Ghostty.App.openURL).
+    private func open(_ change: GitPanelModel.FileChange) {
+        guard let root = model.repoRoot else { return }
+        let fullPath = (root as NSString).appendingPathComponent(change.path)
+        let url = URL(filePath: fullPath)
+        let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension)
+            ?? NSWorkspace.shared.defaultTextEditor
+        if let editor {
+            NSWorkspace.shared.open(
+                [url],
+                withApplicationAt: editor,
+                configuration: NSWorkspace.OpenConfiguration()
+            )
+        } else {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -282,6 +294,57 @@ struct GitPanelView: View {
             if !name.isEmpty {
                 model.createBranch(name)
             }
+        }
+    }
+}
+
+// MARK: - FileRow
+
+/// A single changed-file row. Clicking opens the file in the default editor,
+/// matching how a file link clicked in the terminal opens. Deleted files no
+/// longer exist on disk, so they aren't clickable.
+private struct FileRow: View {
+    let change: GitPanelModel.FileChange
+    let theme: SidebarTheme
+    let statusColor: Color
+    let onOpen: () -> Void
+
+    @State private var hover = false
+
+    private var openable: Bool { change.status != "D" }
+
+    var body: some View {
+        Button(action: onOpen) {
+            HStack(spacing: 5) {
+                Text(String(change.status))
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundColor(statusColor)
+                    .frame(width: 10)
+                Text(change.fileName)
+                    .font(.system(size: 10))
+                    .foregroundColor(theme.foreground.opacity(hover && openable ? 1.0 : 0.85))
+                    .underline(hover && openable)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!openable)
+        .help(openable ? "Open \(change.path)" : change.path)
+        .onHover { hovering in
+            hover = hovering
+            guard openable else { return }
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .onDisappear {
+            // Balance the cursor stack if we vanish while hovered.
+            if hover && openable { NSCursor.pop() }
         }
     }
 }
