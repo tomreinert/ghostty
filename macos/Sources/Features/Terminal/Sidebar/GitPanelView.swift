@@ -92,8 +92,6 @@ struct GitPanelView: View {
             menuPresenter.show(relativeTo: anchor)
         } label: {
             HStack(spacing: 4) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 10))
                 Text(model.isDetached ? "detached" : (model.branch ?? "…"))
                     .font(.system(size: 11, weight: .semibold))
                     .lineLimit(1)
@@ -314,6 +312,9 @@ struct GitPanelView: View {
                     .font(.system(size: 10))
                     .foregroundColor(theme.foreground)
                     .onSubmit(commit)
+                    // Suppress the focus ring; it nudges the field's content up
+                    // ~1px when the field becomes first responder.
+                    .disableFocusEffect()
 
                 Button(action: commit) {
                     Image(systemName: "checkmark.circle.fill")
@@ -534,4 +535,19 @@ private struct NSViewGrabber: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+// MARK: - View helpers
+
+private extension View {
+    /// Disable the SwiftUI focus effect (ring) where available. `focusEffectDisabled`
+    /// is macOS 14+, and the app's deployment target is lower, so gate it.
+    @ViewBuilder
+    func disableFocusEffect() -> some View {
+        if #available(macOS 14.0, *) {
+            focusEffectDisabled()
+        } else {
+            self
+        }
+    }
 }
