@@ -31,6 +31,11 @@ final class GhosttyIPCServer {
     private var clients: [Int32: ClientConnection] = [:]
     private var socketPath: String = ""
 
+    /// Identity of the socket file we created and bound, so `stop()` never
+    /// removes a file that another instance has since replaced.
+    private var ownedInode: ino_t = 0
+    private var ownedDev: dev_t = 0
+
     /// Per-client state for buffering partial reads.
     private class ClientConnection {
         let fd: Int32
@@ -46,11 +51,57 @@ final class GhosttyIPCServer {
 
     // MARK: - Lifecycle
 
+    /// Build a `sockaddr_un` for the given path. Returns nil if the path is too
+    /// long to fit in `sun_path`.
+    private func makeUnixAddr(_ path: String) -> sockaddr_un? {
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = path.utf8CString
+        guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
+            return nil
+        }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            ptr.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dest in
+                for i in 0..<pathBytes.count {
+                    dest[i] = pathBytes[i]
+                }
+            }
+        }
+        return addr
+    }
+
+    /// Returns true if a live server is currently listening on `path`. Used to
+    /// distinguish a stale socket file (safe to replace) from one owned by
+    /// another running Ghostty instance (which we must not stomp).
+    private func isSocketAlive(_ path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        guard var addr = makeUnixAddr(path) else { return false }
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                connect(fd, sockPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        // A successful connect means someone is accepting on this path. ECONNREFUSED
+        // (or ENOENT) means the file is stale with no live listener.
+        return result == 0
+    }
+
     func start() {
         let uid = getuid()
         socketPath = "/tmp/ghostty-\(uid).sock"
 
-        // Remove stale socket if it exists
+        // If a live Ghostty already owns the socket, defer to it (first instance
+        // wins). Clear socketPath so stop() won't touch someone else's file.
+        if isSocketAlive(socketPath) {
+            Self.logger.info("IPC: socket already owned by a live instance; not starting server")
+            socketPath = ""
+            return
+        }
+
+        // No live listener: remove the stale socket file if one is left over.
         unlink(socketPath)
 
         // Create socket
@@ -61,21 +112,11 @@ final class GhosttyIPCServer {
         }
 
         // Bind
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let pathBytes = socketPath.utf8CString
-        guard pathBytes.count <= MemoryLayout.size(ofValue: addr.sun_path) else {
+        guard var addr = makeUnixAddr(socketPath) else {
             Self.logger.warning("IPC: socket path too long")
             close(serverFd)
             serverFd = -1
             return
-        }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            ptr.withMemoryRebound(to: CChar.self, capacity: pathBytes.count) { dest in
-                for i in 0..<pathBytes.count {
-                    dest[i] = pathBytes[i]
-                }
-            }
         }
 
         let bindResult = withUnsafePointer(to: &addr) { ptr in
@@ -99,6 +140,14 @@ final class GhosttyIPCServer {
             close(serverFd)
             serverFd = -1
             return
+        }
+
+        // Record the identity of the file we just created so stop() only
+        // removes it if it's still ours.
+        var st = stat()
+        if stat(socketPath, &st) == 0 {
+            ownedInode = st.st_ino
+            ownedDev = st.st_dev
         }
 
         // Set non-blocking
@@ -133,10 +182,19 @@ final class GhosttyIPCServer {
         }
         clients.removeAll()
 
-        // Remove socket file
+        // Remove the socket file only if it's still the one we created. Another
+        // instance may have replaced it, in which case we must leave it alone.
         if !socketPath.isEmpty {
-            unlink(socketPath)
+            var st = stat()
+            if stat(socketPath, &st) == 0,
+               st.st_ino == ownedInode,
+               st.st_dev == ownedDev {
+                unlink(socketPath)
+            }
         }
+        socketPath = ""
+        ownedInode = 0
+        ownedDev = 0
 
         if serverFd >= 0 {
             close(serverFd)
