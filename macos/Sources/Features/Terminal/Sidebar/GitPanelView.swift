@@ -191,12 +191,62 @@ struct GitPanelView: View {
         }
     }
 
-    /// Open a changed file in the user's default editor, mirroring how Ghostty
-    /// opens a file link clicked in the terminal (see Ghostty.App.openURL).
+    /// Open a changed file in the user's editor. Prefers $VISUAL/$EDITOR (e.g.
+    /// `cursor`, `code`), falling back to the default app for the file type.
     private func open(_ change: GitPanelModel.FileChange) {
         guard let root = model.repoRoot else { return }
         let fullPath = (root as NSString).appendingPathComponent(change.path)
-        let url = URL(filePath: fullPath)
+        Task.detached {
+            if Self.resolveEditorEnv().isEmpty {
+                // No $EDITOR/$VISUAL configured: fall back to the OS default app,
+                // matching how a file link clicked in the terminal opens.
+                await MainActor.run { Self.openWithDefaultApp(fullPath) }
+            } else {
+                Self.launchInEditor(fullPath)
+            }
+        }
+    }
+
+    /// Resolve the user's editor from $VISUAL/$EDITOR. Ghostty is a GUI app and
+    /// doesn't inherit the shell profile's environment, so we source it through
+    /// a login+interactive shell. The value is wrapped in \1 markers so noisy
+    /// shell profiles (banners, etc.) can't corrupt what we read back.
+    private static func resolveEditorEnv() -> String {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-ilc", #"printf '\1%s\1' "${VISUAL:-$EDITOR}""#]
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return "" }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard let text = String(data: data, encoding: .utf8) else { return "" }
+        let parts = text.components(separatedBy: "\u{01}")
+        guard parts.count >= 2 else { return "" }
+        return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Launch the file in $VISUAL/$EDITOR via a login+interactive shell, so the
+    /// editor's CLI (cursor/code/etc.) is on PATH. Unquoted expansion lets a
+    /// value like `code --wait` split into command + args.
+    private static func launchInEditor(_ path: String) {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: shell)
+        process.arguments = ["-ilc", #"exec ${VISUAL:-$EDITOR} "$1""#, "ghostty", path]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    /// Open with the OS default application for the file's type, matching how a
+    /// file link clicked in the terminal opens (see Ghostty.App.openURL).
+    private static func openWithDefaultApp(_ path: String) {
+        let url = URL(filePath: path)
         let editor = NSWorkspace.shared.defaultApplicationURL(forExtension: url.pathExtension)
             ?? NSWorkspace.shared.defaultTextEditor
         if let editor {
