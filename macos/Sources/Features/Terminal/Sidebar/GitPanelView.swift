@@ -197,12 +197,13 @@ struct GitPanelView: View {
         guard let root = model.repoRoot else { return }
         let fullPath = (root as NSString).appendingPathComponent(change.path)
         Task.detached {
-            if Self.resolveEditorEnv().isEmpty {
+            let editor = Self.resolveEditorEnv()
+            if editor.isEmpty {
                 // No $EDITOR/$VISUAL configured: fall back to the OS default app,
                 // matching how a file link clicked in the terminal opens.
                 await MainActor.run { Self.openWithDefaultApp(fullPath) }
             } else {
-                Self.launchInEditor(fullPath)
+                Self.launchInEditor(editor: editor, path: fullPath)
             }
         }
     }
@@ -229,14 +230,18 @@ struct GitPanelView: View {
         return parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Launch the file in $VISUAL/$EDITOR via a login+interactive shell, so the
-    /// editor's CLI (cursor/code/etc.) is on PATH. Unquoted expansion lets a
-    /// value like `code --wait` split into command + args.
-    private static func launchInEditor(_ path: String) {
+    /// Launch the file in the resolved editor via a login+interactive shell, so
+    /// the editor's CLI (cursor/code/etc.) is on PATH. The editor string is
+    /// split into words here and passed as separate args: zsh does not
+    /// word-split unquoted parameter expansions, so `exec $EDITOR` would treat
+    /// "cursor --wait" as a single command. `exec "$@"` avoids that entirely.
+    private static func launchInEditor(editor: String, path: String) {
+        let words = editor.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+        guard !words.isEmpty else { return }
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
-        process.arguments = ["-ilc", #"exec ${VISUAL:-$EDITOR} "$1""#, "ghostty", path]
+        process.arguments = ["-ilc", #"exec "$@""#, "ghostty"] + words + [path]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
