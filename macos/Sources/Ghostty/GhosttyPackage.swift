@@ -366,6 +366,9 @@ extension Notification.Name {
     /// An IPC notification was received (tab.notify command). Object is the target NSWindow.
     static let ghosttyIPCNotification = Notification.Name("com.mitchellh.ghostty.ipcNotification")
 
+    /// The active selection changed
+    static let ghosttySelectionDidChange = Notification.Name("com.mitchellh.ghostty.ghosttySelectionDidChange")
+
     /// Readonly mode changed
     static let ghosttyDidChangeReadonly = Notification.Name("com.mitchellh.ghostty.didChangeReadonly")
     static let ReadonlyKey = ghosttyDidChangeReadonly.rawValue + ".readonly"

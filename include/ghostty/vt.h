@@ -29,10 +29,13 @@
  *
  * The API is organized into the following groups:
  * - @ref terminal "Terminal" - Complete terminal emulator state and rendering
+ * - @ref render "Render State" - Incremental render state updates for custom renderers
  * - @ref formatter "Formatter" - Format terminal content as plain text, VT sequences, or HTML
  * - @ref osc "OSC Parser" - Parse OSC (Operating System Command) sequences
  * - @ref sgr "SGR Parser" - Parse SGR (Select Graphic Rendition) sequences
  * - @ref paste "Paste Utilities" - Validate paste data safety
+ * - @ref unicode "Unicode Utilities" - Codepoint properties for text layout
+ * - @ref build_info "Build Info" - Query compile-time build configuration
  * - @ref allocator "Memory Management" - Memory management and custom allocators
  * - @ref wasm "WebAssembly Utilities" - WebAssembly convenience functions
  *
@@ -44,13 +47,22 @@
  * @section examples_sec Examples
  *
  * Complete working examples:
+ * - @ref c-vt-build-info/src/main.c - Build info query example
  * - @ref c-vt/src/main.c - OSC parser example
  * - @ref c-vt-encode-key/src/main.c - Key encoding example
  * - @ref c-vt-encode-mouse/src/main.c - Mouse encoding example
  * - @ref c-vt-paste/src/main.c - Paste safety check example
  * - @ref c-vt-sgr/src/main.c - SGR parser example
  * - @ref c-vt-formatter/src/main.c - Terminal formatter example
+ * - @ref c-vt-grid-traverse/src/main.c - Grid traversal example using grid refs
+ * - @ref c-vt-grid-ref-tracked/src/main.c - Tracked grid ref example
+ * - @ref c-vt-compression/src/main.c - Idle scrollback compression example
  *
+ */
+
+/** @example c-vt-build-info/src/main.c
+ * This example demonstrates how to query compile-time build configuration
+ * such as SIMD support, Kitty graphics, and tmux control mode availability.
  */
 
 /** @example c-vt/src/main.c
@@ -84,6 +96,31 @@
  * contents as plain text.
  */
 
+/** @example c-vt-grid-traverse/src/main.c
+ * This example demonstrates how to traverse the entire terminal grid using
+ * grid refs to inspect cell codepoints, row wrap state, and cell styles.
+ */
+
+/** @example c-vt-grid-ref-tracked/src/main.c
+ * This example demonstrates how to track a grid ref as the terminal scrolls,
+ * detect when it loses its value, and move it to a new point.
+ */
+
+/** @example c-vt-compression/src/main.c
+ * This example demonstrates how to schedule incremental scrollback compression
+ * after compression-relevant terminal activity becomes idle.
+ */
+
+/** @example c-vt-selection-gesture/src/main.c
+ * This example demonstrates how to use synthetic selection gesture events to
+ * derive drag and deep-press selection snapshots.
+ */
+
+/** @example c-vt-kitty-graphics/src/main.c
+ * This example demonstrates how to use the system interface to install a
+ * PNG decoder callback and send a Kitty Graphics Protocol image.
+ */
+
 #ifndef GHOSTTY_VT_H
 #define GHOSTTY_VT_H
 
@@ -93,16 +130,30 @@ extern "C" {
 
 #include <ghostty/vt/types.h>
 #include <ghostty/vt/allocator.h>
+#include <ghostty/vt/build_info.h>
+#include <ghostty/vt/color.h>
+#include <ghostty/vt/color_scheme.h>
+#include <ghostty/vt/device.h>
 #include <ghostty/vt/focus.h>
 #include <ghostty/vt/formatter.h>
+#include <ghostty/vt/render.h>
 #include <ghostty/vt/terminal.h>
+#include <ghostty/vt/grid_ref.h>
+#include <ghostty/vt/grid_ref_tracked.h>
 #include <ghostty/vt/osc.h>
 #include <ghostty/vt/sgr.h>
+#include <ghostty/vt/style.h>
+#include <ghostty/vt/sys.h>
 #include <ghostty/vt/key.h>
+#include <ghostty/vt/kitty_graphics.h>
 #include <ghostty/vt/modes.h>
 #include <ghostty/vt/mouse.h>
 #include <ghostty/vt/paste.h>
+#include <ghostty/vt/point.h>
+#include <ghostty/vt/screen.h>
+#include <ghostty/vt/selection.h>
 #include <ghostty/vt/size_report.h>
+#include <ghostty/vt/unicode.h>
 #include <ghostty/vt/wasm.h>
 
 #ifdef __cplusplus

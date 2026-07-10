@@ -3,6 +3,7 @@ const assert = @import("../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 const simd = @import("../../simd/main.zig");
+const lib = @import("../lib.zig");
 
 const log = std.log.scoped(.kitty_gfx);
 
@@ -37,6 +38,10 @@ pub const Parser = struct {
     /// here instead of a fixed buffer so that we can too.
     data: std.ArrayList(u8),
 
+    /// Maximum bytes the data payload can take. This is to prevent
+    /// malicious input from causing us to allocate too much memory.
+    max_bytes: usize,
+
     /// Internal state for parsing.
     state: State,
 
@@ -54,7 +59,7 @@ pub const Parser = struct {
 
     /// Initialize the parser. The allocator given will be used for both
     /// temporary data and long-lived values such as the final image blob.
-    pub fn init(alloc: Allocator) Parser {
+    pub fn init(alloc: Allocator, max_bytes: usize) Parser {
         var arena = ArenaAllocator.init(alloc);
         errdefer arena.deinit();
         var result: Parser = .{
@@ -63,6 +68,7 @@ pub const Parser = struct {
             .kv = .{},
             .kv_temp_len = 0,
             .kv_current = 0,
+            .max_bytes = max_bytes,
             .state = .control_key,
 
             .kv_temp = undefined,
@@ -83,7 +89,7 @@ pub const Parser = struct {
 
     /// Parse a complete command string.
     pub fn parseString(alloc: Allocator, data: []const u8) !Command {
-        var parser = init(alloc);
+        var parser = init(alloc, 1024 * 1024);
         defer parser.deinit();
         for (data) |c| try parser.feed(c);
         return try parser.complete(alloc);
@@ -136,7 +142,30 @@ pub const Parser = struct {
                 else => {},
             },
 
-            .data => try self.data.append(self.arena.child_allocator, c),
+            .data => {
+                if (self.data.items.len >= self.max_bytes) return error.OutOfMemory;
+                try self.data.append(self.arena.child_allocator, c);
+            },
+        }
+    }
+
+    /// Feed a slice of bytes to the parser. This is equivalent to
+    /// calling feed for each byte in order, but once we're in the data
+    /// state the remainder of the slice is appended in bulk, avoiding
+    /// per-byte overhead for large payloads.
+    pub fn feedSlice(self: *Parser, bytes: []const u8) !void {
+        var rem = bytes;
+        while (rem.len > 0) {
+            if (self.state == .data) {
+                if (self.data.items.len + rem.len > self.max_bytes) {
+                    return error.OutOfMemory;
+                }
+                try self.data.appendSlice(self.arena.child_allocator, rem);
+                return;
+            }
+
+            try self.feed(rem[0]);
+            rem = rem[1..];
         }
     }
 
@@ -394,39 +423,38 @@ pub const Transmission = struct {
     compression: Compression = .none, // o
     more_chunks: bool = false, // m
 
-    pub const Format = enum {
-        rgb, // 24
-        rgba, // 32
-        png, // 100
-
+    pub const Format = lib.Enum(lib.target, &.{
+        "rgb", // 24
+        "rgba", // 32
+        "png", // 100
         // The following are not supported directly via the protocol
         // but they are formats that a png may decode to that we
         // support.
-        gray_alpha,
-        gray,
+        "gray_alpha",
+        "gray",
+    });
 
-        pub fn bpp(self: Format) u8 {
-            return switch (self) {
-                .gray => 1,
-                .gray_alpha => 2,
-                .rgb => 3,
-                .rgba => 4,
-                .png => unreachable, // Must be validated before
-            };
-        }
-    };
+    pub const Medium = lib.Enum(lib.target, &.{
+        "direct", // d
+        "file", // f
+        "temporary_file", // t
+        "shared_memory", // s
+    });
 
-    pub const Medium = enum {
-        direct, // d
-        file, // f
-        temporary_file, // t
-        shared_memory, // s
-    };
+    pub const Compression = lib.Enum(lib.target, &.{
+        "none",
+        "zlib_deflate", // z
+    });
 
-    pub const Compression = enum {
-        none,
-        zlib_deflate, // z
-    };
+    pub fn formatBpp(format: Format) u8 {
+        return switch (format) {
+            .gray => 1,
+            .gray_alpha => 2,
+            .rgb => 3,
+            .rgba => 4,
+            .png => unreachable, // Must be validated before
+        };
+    }
 
     fn parse(kv: KV) !Transmission {
         var result: Transmission = .{};
@@ -964,7 +992,7 @@ pub const CompositionMode = enum {
 test "transmission command" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "f=24,s=10,v=20";
@@ -979,10 +1007,61 @@ test "transmission command" {
     try testing.expectEqual(@as(u32, 20), v.height);
 }
 
+test "feedSlice matches per-byte feed" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    const input = "f=24,s=10,v=20;aGVsbG8gd29ybGQ=";
+
+    var p1 = Parser.init(alloc, 1024 * 1024);
+    defer p1.deinit();
+    for (input) |c| try p1.feed(c);
+    const c1 = try p1.complete(alloc);
+    defer c1.deinit(alloc);
+
+    var p2 = Parser.init(alloc, 1024 * 1024);
+    defer p2.deinit();
+    try p2.feedSlice(input);
+    const c2 = try p2.complete(alloc);
+    defer c2.deinit(alloc);
+
+    try testing.expect(c1.control == .transmit);
+    try testing.expect(c2.control == .transmit);
+    try testing.expectEqualStrings(c1.data, c2.data);
+}
+
+test "feedSlice across slice boundaries" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 1024 * 1024);
+    defer p.deinit();
+
+    try p.feedSlice("f=24,s=10");
+    try p.feedSlice(",v=20;aGVsbG8g");
+    try p.feedSlice("d29ybGQ=");
+    const command = try p.complete(alloc);
+    defer command.deinit(alloc);
+
+    try testing.expect(command.control == .transmit);
+
+    // The payload is base64-decoded on completion.
+    try testing.expectEqualStrings("hello world", command.data);
+}
+
+test "feedSlice respects max_bytes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 4);
+    defer p.deinit();
+
+    try p.feedSlice("f=24;ab");
+    try testing.expectError(error.OutOfMemory, p.feedSlice("cde"));
+}
+
 test "transmission ignores 'm' if medium is not direct" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=t,t=t,m=1";
@@ -999,7 +1078,7 @@ test "transmission ignores 'm' if medium is not direct" {
 test "transmission respects 'm' if medium is direct" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=t,t=d,m=1";
@@ -1016,7 +1095,7 @@ test "transmission respects 'm' if medium is direct" {
 test "query command" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "i=31,s=1,v=1,a=q,t=d,f=24;QUFBQQ";
@@ -1036,7 +1115,7 @@ test "query command" {
 test "display command" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=p,U=1,i=31,c=80,r=120";
@@ -1054,7 +1133,7 @@ test "display command" {
 test "delete command" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=d,d=p,x=3,y=4";
@@ -1074,7 +1153,7 @@ test "delete command" {
 test "no control data" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = ";QUFBQQ";
@@ -1089,7 +1168,7 @@ test "no control data" {
 test "ignore unknown keys (long)" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "f=24,s=10,v=20,hello=world";
@@ -1107,7 +1186,7 @@ test "ignore unknown keys (long)" {
 test "ignore very long values" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "f=24,s=10,v=2000000000000000000000000000000000000000";
@@ -1125,7 +1204,7 @@ test "ignore very long values" {
 test "ensure very large negative values don't get skipped" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=p,i=1,z=-2000000000";
@@ -1142,7 +1221,7 @@ test "ensure very large negative values don't get skipped" {
 test "ensure proper overflow error for u32" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=p,i=10000000000";
@@ -1153,7 +1232,7 @@ test "ensure proper overflow error for u32" {
 test "ensure proper overflow error for i32" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=p,i=1,z=-9999999999";
@@ -1167,7 +1246,7 @@ test "all i32 values" {
 
     {
         // 'z' (usually z-axis values)
-        var p = Parser.init(alloc);
+        var p = Parser.init(alloc, 1024 * 1024);
         defer p.deinit();
         const input = "a=p,i=1,z=-1";
         for (input) |c| try p.feed(c);
@@ -1182,7 +1261,7 @@ test "all i32 values" {
 
     {
         // 'H' (relative placement, horizontal offset)
-        var p = Parser.init(alloc);
+        var p = Parser.init(alloc, 1024 * 1024);
         defer p.deinit();
         const input = "a=p,i=1,H=-1";
         for (input) |c| try p.feed(c);
@@ -1197,7 +1276,7 @@ test "all i32 values" {
 
     {
         // 'V' (relative placement, vertical offset)
-        var p = Parser.init(alloc);
+        var p = Parser.init(alloc, 1024 * 1024);
         defer p.deinit();
         const input = "a=p,i=1,V=-1";
         for (input) |c| try p.feed(c);
@@ -1254,7 +1333,7 @@ test "response: encode with image ID and number" {
 test "delete range command 1" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=d,d=r,x=3,y=4";
@@ -1274,7 +1353,7 @@ test "delete range command 1" {
 test "delete range command 2" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=d,d=R,x=5,y=11";
@@ -1294,7 +1373,7 @@ test "delete range command 2" {
 test "delete range command 3" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=d,d=R,x=5,y=4";
@@ -1305,7 +1384,7 @@ test "delete range command 3" {
 test "delete range command 4" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=d,d=R,x=5";
@@ -1316,7 +1395,7 @@ test "delete range command 4" {
 test "delete range command 5" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    var p = Parser.init(alloc);
+    var p = Parser.init(alloc, 1024 * 1024);
     defer p.deinit();
 
     const input = "a=d,d=R,y=5";

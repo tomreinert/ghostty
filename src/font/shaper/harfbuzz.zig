@@ -811,7 +811,7 @@ test "shape emoji width long" {
     );
     defer t.deinit(alloc);
 
-    var page = t.screens.active.pages.pages.first.?.data;
+    var page = t.screens.active.pages.pages.first.?.page();
     var row = page.getRow(1);
     const cell = &row.cells.ptr(page.memory)[0];
     cell.* = .{
@@ -2071,7 +2071,7 @@ fn testShaperWithFont(alloc: Allocator, font_req: TestFont) !TestShaper {
         });
     } else {
         // On CoreText we want to load Apple Emoji, we should have it.
-        var disco = font.Discover.init();
+        var disco = font.Discover.init(lib);
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = "Apple Color Emoji",
@@ -2126,7 +2126,7 @@ fn testShaperWithDiscoveredFont(alloc: Allocator, font_req: [:0]const u8) !TestS
 
     // Discover and add our font to the collection.
     {
-        var disco = font.Discover.init();
+        var disco = font.Discover.init(lib);
         defer disco.deinit();
         var disco_it = try disco.discover(alloc, .{
             .family = font_req,
