@@ -48,4 +48,18 @@ Add to your `~/.claude/CLAUDE.md` so Claude Code can name its tabs and set statu
 - Set sidebar status entries using `ghosttyctl set-status <key> <value> [--icon <sf-symbol>]` and clear with `ghosttyctl clear-status <key>`.
 ```
 
+## Git panel
+
+A small git panel pinned to the bottom of the sidebar, scoped to the selected tab's repo:
+
+- **Branch + sync** — current branch, ahead/behind, and inline checkout / commit / push / pull
+- **Changes** — pending files with colour-coded status (`M` modified, `A` added, `D` deleted, `?` untracked, `U` conflict)
+- **Click to open** — click a file to open it in your editor via `$VISUAL`/`$EDITOR` (e.g. Cursor, VS Code)
+
+This one is especially personal, built around how I work day to day. If it's not for you, turn it off:
+
+```
+sidebar-git = false
+```
+
 ---
