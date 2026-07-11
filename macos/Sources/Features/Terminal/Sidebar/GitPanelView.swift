@@ -490,9 +490,11 @@ private struct FileRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
-                if hover {
-                    discardButton
-                }
+                // Always in the layout so hovering doesn't shift the row;
+                // invisible and non-hittable until hovered.
+                discardButton
+                    .opacity(hover ? 1 : 0)
+                    .allowsHitTesting(hover)
             }
             .contentShape(Rectangle())
         }
@@ -518,7 +520,9 @@ private struct FileRow: View {
             Image(systemName: "arrow.uturn.backward")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundColor(hoverDiscard ? theme.foreground : theme.secondaryText)
-                .frame(width: 14, height: 14)
+                // Height matches the text row so reserving the space
+                // doesn't change the row height.
+                .frame(width: 14, height: 12)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
