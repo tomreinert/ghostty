@@ -90,6 +90,7 @@ struct GitPanelView: View {
             guard let anchor = branchAnchor else { return }
             menuPresenter.model = model
             menuPresenter.onNewBranch = { promptNewBranch() }
+            menuPresenter.onDiscardAll = { confirmDiscardAll() }
             menuPresenter.show(relativeTo: anchor)
         } label: {
             HStack(spacing: 4) {
@@ -200,8 +201,46 @@ struct GitPanelView: View {
             change: change,
             theme: theme,
             statusColor: statusColor(change.status),
-            onOpen: { open(change) }
+            onOpen: { open(change) },
+            onDiscard: { confirmDiscard(change) }
         )
+    }
+
+    // MARK: - Discard
+
+    /// New files (untracked/added) are deleted from disk; anything else is
+    /// restored from HEAD. Both lose work, so always confirm.
+    private func confirmDiscard(_ change: GitPanelModel.FileChange) {
+        let isNew = change.status == "?" || change.status == "A"
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = isNew
+            ? "Delete \(change.fileName)?"
+            : "Discard changes to \(change.fileName)?"
+        alert.informativeText = isNew
+            ? "\(change.path) is not committed and will be deleted from disk. This cannot be undone."
+            : "Uncommitted changes to \(change.path) will be lost. This cannot be undone."
+        alert.addButton(withTitle: isNew ? "Delete" : "Discard").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            model.discard(change)
+        }
+    }
+
+    private func confirmDiscardAll() {
+        let count = model.changes.count
+        guard count > 0 else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Discard all changes?"
+        alert.informativeText = count == 1
+            ? "1 uncommitted change will be lost and untracked files deleted. This cannot be undone."
+            : "\(count) uncommitted changes will be lost and untracked files deleted. This cannot be undone."
+        alert.addButton(withTitle: "Discard All").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        if alert.runModal() == .alertFirstButtonReturn {
+            model.discardAll()
+        }
     }
 
     private func statusColor(_ status: Character) -> Color {
@@ -420,19 +459,25 @@ struct GitPanelView: View {
 
 /// A single changed-file row. Clicking opens the file in the default editor,
 /// matching how a file link clicked in the terminal opens. Deleted files no
-/// longer exist on disk, so they aren't clickable.
+/// longer exist on disk, so they aren't clickable — but they can still be
+/// discarded via the hover button, so the row itself stays enabled.
 private struct FileRow: View {
     let change: GitPanelModel.FileChange
     let theme: SidebarTheme
     let statusColor: Color
     let onOpen: () -> Void
+    let onDiscard: () -> Void
 
     @State private var hover = false
+    @State private var hoverDiscard = false
 
     private var openable: Bool { change.status != "D" }
 
     var body: some View {
-        Button(action: onOpen) {
+        Button {
+            guard openable else { return }
+            onOpen()
+        } label: {
             HStack(spacing: 5) {
                 Text(String(change.status))
                     .font(.system(size: 9, weight: .bold, design: .monospaced))
@@ -445,11 +490,13 @@ private struct FileRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer(minLength: 0)
+                if hover {
+                    discardButton
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(!openable)
         .help(openable ? "Open \(change.path)" : change.path)
         .onHover { hovering in
             hover = hovering
@@ -465,6 +512,19 @@ private struct FileRow: View {
             if hover && openable { NSCursor.pop() }
         }
     }
+
+    private var discardButton: some View {
+        Button(action: onDiscard) {
+            Image(systemName: "arrow.uturn.backward")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundColor(hoverDiscard ? theme.foreground : theme.secondaryText)
+                .frame(width: 14, height: 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Discard changes")
+        .onHover { hoverDiscard = $0 }
+    }
 }
 
 // MARK: - BranchMenuPresenter
@@ -474,6 +534,7 @@ private struct FileRow: View {
 final class BranchMenuPresenter: NSObject {
     var model: GitPanelModel?
     var onNewBranch: (() -> Void)?
+    var onDiscardAll: (() -> Void)?
 
     private static let maxInlineBranches = 10
 
@@ -495,6 +556,17 @@ final class BranchMenuPresenter: NSObject {
         let push = NSMenuItem(title: "Push", action: #selector(pushAction), keyEquivalent: "")
         push.target = self
         menu.addItem(push)
+
+        menu.addItem(.separator())
+
+        let discard = NSMenuItem(
+            title: "Discard All Changes…",
+            action: #selector(discardAllAction),
+            keyEquivalent: ""
+        )
+        discard.target = self
+        discard.isEnabled = !model.changes.isEmpty
+        menu.addItem(discard)
 
         menu.addItem(.separator())
 
@@ -543,6 +615,7 @@ final class BranchMenuPresenter: NSObject {
     @objc private func pullAction() { model?.pull() }
     @objc private func pushAction() { model?.push() }
     @objc private func newBranchAction() { onNewBranch?() }
+    @objc private func discardAllAction() { onDiscardAll?() }
 }
 
 // MARK: - NSViewGrabber

@@ -9,6 +9,8 @@ import CoreServices
 final class GitPanelModel: ObservableObject {
     struct FileChange: Identifiable, Equatable {
         let path: String
+        /// For renames, the pre-rename path (needed to discard). Nil otherwise.
+        let origPath: String?
         /// Single porcelain status character: M, A, D, R, C, U or ?
         let status: Character
 
@@ -151,14 +153,14 @@ final class GitPanelModel: ObservableObject {
             let x = line[line.startIndex]
             let y = line[line.index(after: line.startIndex)]
             var path = String(line.dropFirst(3))
-            // Renames are "orig -> new"; show the new path.
+            var origPath: String?
+            // Renames are "orig -> new"; show the new path, keep the original
+            // so discard can restore it.
             if let range = path.range(of: " -> ") {
+                origPath = Self.unquote(String(path[..<range.lowerBound]))
                 path = String(path[range.upperBound...])
             }
-            // Quoted paths (special characters): strip the quotes for display.
-            if path.hasPrefix("\""), path.hasSuffix("\"") {
-                path = String(path.dropFirst().dropLast())
-            }
+            path = Self.unquote(path)
 
             let status: Character
             if x == "?" {
@@ -170,10 +172,16 @@ final class GitPanelModel: ObservableObject {
             } else {
                 status = x
             }
-            newChanges.append(FileChange(path: path, status: status))
+            newChanges.append(FileChange(path: path, origPath: origPath, status: status))
         }
 
         setIfChanged(\.changes, newChanges)
+    }
+
+    /// Quoted paths (special characters): strip the quotes for display.
+    nonisolated private static func unquote(_ path: String) -> String {
+        guard path.hasPrefix("\""), path.hasSuffix("\"") else { return path }
+        return String(path.dropFirst().dropLast())
     }
 
     private func parseBranchLine(_ line: String) {
@@ -235,6 +243,50 @@ final class GitPanelModel: ObservableObject {
             let add = await Self.runGit(["add", "-A"], in: root)
             guard add.code == 0 else { return add }
             return await Self.runGit(["commit", "-m", trimmed], in: root)
+        }
+    }
+
+    /// Discard the uncommitted changes to a single file. Untracked and newly
+    /// added files are deleted from disk; everything else is restored from
+    /// HEAD (in both the index and the working tree). The confirmation prompt
+    /// lives in the view; this assumes the user already said yes.
+    func discard(_ change: FileChange) {
+        performAction { root in
+            switch change.status {
+            case "?":
+                // Untracked: just remove it (and any now-empty directories).
+                return await Self.runGit(["clean", "-fd", "--", change.path], in: root)
+            case "A":
+                // Added: unstage, then remove the now-untracked file.
+                let reset = await Self.runGit(["reset", "-q", "HEAD", "--", change.path], in: root)
+                guard reset.code == 0 else { return reset }
+                return await Self.runGit(["clean", "-fd", "--", change.path], in: root)
+            default:
+                if let orig = change.origPath {
+                    // Rename: unstage both sides, restore the original,
+                    // remove the renamed copy.
+                    let reset = await Self.runGit(
+                        ["reset", "-q", "HEAD", "--", orig, change.path], in: root)
+                    guard reset.code == 0 else { return reset }
+                    let checkout = await Self.runGit(
+                        ["checkout", "-q", "HEAD", "--", orig], in: root)
+                    guard checkout.code == 0 else { return checkout }
+                    return await Self.runGit(["clean", "-fd", "--", change.path], in: root)
+                }
+                // Modified/deleted/conflicted: restore index and worktree
+                // from HEAD.
+                return await Self.runGit(["checkout", "-q", "HEAD", "--", change.path], in: root)
+            }
+        }
+    }
+
+    /// Discard every uncommitted change: hard-reset tracked files and delete
+    /// untracked ones. The confirmation prompt lives in the view.
+    func discardAll() {
+        performAction { root in
+            let reset = await Self.runGit(["reset", "-q", "--hard", "HEAD"], in: root)
+            guard reset.code == 0 else { return reset }
+            return await Self.runGit(["clean", "-fd"], in: root)
         }
     }
 
