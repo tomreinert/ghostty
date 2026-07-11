@@ -75,6 +75,16 @@ pub fn init(
         // to xcodebuild.
         if (xc_arch) |arch| step.addArgs(&.{ "-arch", arch });
 
+        // Sign with a real identity instead of ad-hoc when requested, so
+        // TCC grants (notifications etc.) survive rebuilds. The identity
+        // must exist in the keychain (see `security find-identity`).
+        if (config.macos_codesign_identity) |identity| {
+            // Manual style: macOS apps need no provisioning profile, and
+            // automatic signing would demand a DEVELOPMENT_TEAM.
+            step.addArg("CODE_SIGN_STYLE=Manual");
+            step.addArg(b.fmt("CODE_SIGN_IDENTITY={s}", .{identity}));
+        }
+
         // We need the xcframework
         deps.xcframework.addStepDependencies(&step.step);
 

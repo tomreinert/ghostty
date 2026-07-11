@@ -44,6 +44,7 @@ lib_version: std.SemanticVersion = .{ .major = 0, .minor = 0, .patch = 0 },
 pie: bool = false,
 strip: bool = false,
 patch_rpath: ?[]const u8 = null,
+macos_codesign_identity: ?[]const u8 = null,
 
 /// Artifacts
 flatpak: bool = false,
@@ -334,6 +335,14 @@ pub fn init(b: *std.Build, appVersion: []const u8, libVersion: []const u8) !Conf
         "pie",
         "Build a Position Independent Executable. Default true for system packages.",
     ) orelse system_package;
+
+    config.macos_codesign_identity = b.option(
+        []const u8,
+        "macos-codesign-identity",
+        "Code-sign the macOS app with this identity (e.g. \"Apple Development: Name (TEAM)\") " ++
+            "instead of ad-hoc. A stable identity keeps TCC grants like notifications " ++
+            "across rebuilds.",
+    );
 
     config.strip = b.option(
         bool,
