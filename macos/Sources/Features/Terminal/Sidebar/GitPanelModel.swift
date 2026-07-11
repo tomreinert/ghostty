@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import CoreServices
 
 /// Observes the git repository at the selected tab's working directory and
 /// exposes state and actions (checkout, commit, push, pull) for the sidebar
@@ -41,9 +42,13 @@ final class GitPanelModel: ObservableObject {
 
     private var timer: Timer?
     private var isRefreshing = false
+    private var needsRefresh = false
+    private var watcher: DirectoryWatcher?
 
     init() {
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        // FSEvents on the repo root drives refreshes; this timer is only a
+        // fallback for changes FSEvents can't see (e.g. network volumes).
+        timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in await self?.refresh() }
         }
     }
@@ -55,10 +60,21 @@ final class GitPanelModel: ObservableObject {
     // MARK: - Refresh
 
     func refresh() async {
-        guard !isRefreshing else { return }
+        // Coalesce: a refresh requested mid-refresh runs once more at the end
+        // instead of being dropped, so a watcher event can't be lost.
+        if isRefreshing {
+            needsRefresh = true
+            return
+        }
         isRefreshing = true
         defer { isRefreshing = false }
+        repeat {
+            needsRefresh = false
+            await refreshOnce()
+        } while needsRefresh
+    }
 
+    private func refreshOnce() async {
         guard let pwd, let root = Self.findRepoRoot(from: pwd) else {
             clearState()
             return
@@ -84,22 +100,43 @@ final class GitPanelModel: ObservableObject {
             return
         }
 
-        repoRoot = root
+        setIfChanged(\.repoRoot, root)
+        startWatching(root)
         parseStatus(status.stdout)
         if refs.code == 0 {
-            branches = refs.stdout.split(separator: "\n").map(String.init)
+            setIfChanged(\.branches, refs.stdout.split(separator: "\n").map(String.init))
         }
     }
 
     private func clearState() {
-        repoRoot = nil
-        branch = nil
-        isDetached = false
-        ahead = 0
-        behind = 0
-        hasUpstream = false
-        changes = []
-        branches = []
+        watcher = nil
+        setIfChanged(\.repoRoot, nil)
+        setIfChanged(\.branch, nil)
+        setIfChanged(\.isDetached, false)
+        setIfChanged(\.ahead, 0)
+        setIfChanged(\.behind, 0)
+        setIfChanged(\.hasUpstream, false)
+        setIfChanged(\.changes, [])
+        setIfChanged(\.branches, [])
+    }
+
+    /// Assign a @Published property only when the value actually changed, so
+    /// the periodic refresh doesn't re-render the panel when nothing moved.
+    private func setIfChanged<T: Equatable>(
+        _ keyPath: ReferenceWritableKeyPath<GitPanelModel, T>, _ value: T
+    ) {
+        if self[keyPath: keyPath] != value {
+            self[keyPath: keyPath] = value
+        }
+    }
+
+    /// (Re)start the FSEvents watcher when the repo root changes. Events from
+    /// the working tree and .git both land here; FSEvents coalesces bursts.
+    private func startWatching(_ root: String) {
+        guard watcher?.path != root else { return }
+        watcher = DirectoryWatcher(path: root) { [weak self] in
+            Task { @MainActor [weak self] in await self?.refresh() }
+        }
     }
 
     private func parseStatus(_ output: String) {
@@ -136,42 +173,45 @@ final class GitPanelModel: ObservableObject {
             newChanges.append(FileChange(path: path, status: status))
         }
 
-        changes = newChanges
+        setIfChanged(\.changes, newChanges)
     }
 
     private func parseBranchLine(_ line: String) {
-        ahead = 0
-        behind = 0
-        hasUpstream = false
-        isDetached = false
+        var newBranch: String?
+        var newAhead = 0
+        var newBehind = 0
+        var newHasUpstream = false
+        var newIsDetached = false
 
         if line.hasPrefix("HEAD (no branch)") {
-            branch = nil
-            isDetached = true
-            return
-        }
-        if line.hasPrefix("No commits yet on ") {
-            branch = String(line.dropFirst("No commits yet on ".count))
-            return
+            newIsDetached = true
+        } else if line.hasPrefix("No commits yet on ") {
+            newBranch = String(line.dropFirst("No commits yet on ".count))
+        } else {
+            // Format: "name" or "name...upstream" or "name...upstream [ahead 1, behind 2]"
+            var head = line
+            if let bracket = head.range(of: " [") {
+                let counts = head[bracket.upperBound...]
+                if let r = counts.range(of: "ahead ") {
+                    newAhead = Int(counts[r.upperBound...].prefix(while: \.isNumber)) ?? 0
+                }
+                if let r = counts.range(of: "behind ") {
+                    newBehind = Int(counts[r.upperBound...].prefix(while: \.isNumber)) ?? 0
+                }
+                head = String(head[..<bracket.lowerBound])
+            }
+            if let dots = head.range(of: "...") {
+                newHasUpstream = true
+                head = String(head[..<dots.lowerBound])
+            }
+            newBranch = head
         }
 
-        // Format: "name" or "name...upstream" or "name...upstream [ahead 1, behind 2]"
-        var head = line
-        if let bracket = head.range(of: " [") {
-            let counts = head[bracket.upperBound...]
-            if let r = counts.range(of: "ahead ") {
-                ahead = Int(counts[r.upperBound...].prefix(while: \.isNumber)) ?? 0
-            }
-            if let r = counts.range(of: "behind ") {
-                behind = Int(counts[r.upperBound...].prefix(while: \.isNumber)) ?? 0
-            }
-            head = String(head[..<bracket.lowerBound])
-        }
-        if let dots = head.range(of: "...") {
-            hasUpstream = true
-            head = String(head[..<dots.lowerBound])
-        }
-        branch = head
+        setIfChanged(\.branch, newBranch)
+        setIfChanged(\.ahead, newAhead)
+        setIfChanged(\.behind, newBehind)
+        setIfChanged(\.hasUpstream, newHasUpstream)
+        setIfChanged(\.isDetached, newIsDetached)
     }
 
     // MARK: - Actions
@@ -304,6 +344,52 @@ final class GitPanelModel: ObservableObject {
                     stderr: String(data: errData, encoding: .utf8) ?? ""
                 ))
             }
+        }
+    }
+}
+
+// MARK: - DirectoryWatcher
+
+/// Watches a directory tree via FSEvents and invokes a callback when anything
+/// under it changes. Watching the repo root covers both the working tree and
+/// .git, so edits, commits, and branch switches all trigger the callback.
+/// The FSEvents latency parameter coalesces bursts (e.g. a checkout touching
+/// hundreds of files) into a single callback.
+private final class DirectoryWatcher {
+    let path: String
+    private var stream: FSEventStreamRef?
+    private let onChange: () -> Void
+
+    init?(path: String, onChange: @escaping () -> Void) {
+        self.path = path
+        self.onChange = onChange
+
+        var context = FSEventStreamContext()
+        context.info = Unmanaged.passUnretained(self).toOpaque()
+        guard let stream = FSEventStreamCreate(
+            kCFAllocatorDefault,
+            { _, info, _, _, _, _ in
+                guard let info else { return }
+                Unmanaged<DirectoryWatcher>.fromOpaque(info)
+                    .takeUnretainedValue().onChange()
+            },
+            &context,
+            [path] as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.3,  // seconds of coalescing before events are delivered
+            FSEventStreamCreateFlags(kFSEventStreamCreateFlagNoDefer)
+        ) else { return nil }
+
+        self.stream = stream
+        FSEventStreamSetDispatchQueue(stream, DispatchQueue.global(qos: .utility))
+        FSEventStreamStart(stream)
+    }
+
+    deinit {
+        if let stream {
+            FSEventStreamStop(stream)
+            FSEventStreamInvalidate(stream)
+            FSEventStreamRelease(stream)
         }
     }
 }

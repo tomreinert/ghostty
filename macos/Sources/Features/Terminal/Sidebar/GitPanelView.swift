@@ -9,6 +9,7 @@ struct GitPanelView: View {
 
     @AppStorage("SidebarGitPanelCollapsed") private var collapsed = false
     @State private var commitMessage = ""
+    @State private var filesExpanded = false
     @State private var hoverCollapse = false
     @State private var branchAnchor: NSView?
     @State private var menuPresenter = BranchMenuPresenter()
@@ -161,23 +162,46 @@ struct GitPanelView: View {
             .foregroundColor(theme.secondaryText)
             .padding(.vertical, 2)
         } else {
+            let overflow = model.changes.count - Self.maxVisibleFiles
             VStack(alignment: .leading, spacing: 3) {
-                ForEach(model.changes.prefix(Self.maxVisibleFiles)) { change in
-                    FileRow(
-                        change: change,
-                        theme: theme,
-                        statusColor: statusColor(change.status),
-                        onOpen: { open(change) }
-                    )
+                if filesExpanded && overflow > 0 {
+                    // Expanded: every file, scrollable, height-capped so the
+                    // panel can't swallow the sidebar.
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 3) {
+                            ForEach(model.changes) { change in fileRow(change) }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                } else {
+                    ForEach(model.changes.prefix(Self.maxVisibleFiles)) { change in
+                        fileRow(change)
+                    }
                 }
-                if model.changes.count > Self.maxVisibleFiles {
-                    Text("+ \(model.changes.count - Self.maxVisibleFiles) more")
-                        .font(.system(size: 9))
-                        .foregroundColor(theme.secondaryText)
-                        .padding(.leading, 15)
+                if overflow > 0 {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) { filesExpanded.toggle() }
+                    } label: {
+                        Text(filesExpanded ? "Show less" : "+ \(overflow) more")
+                            .font(.system(size: 9))
+                            .foregroundColor(theme.secondaryText)
+                            .underline()
+                            .padding(.leading, 15)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
+    }
+
+    private func fileRow(_ change: GitPanelModel.FileChange) -> some View {
+        FileRow(
+            change: change,
+            theme: theme,
+            statusColor: statusColor(change.status),
+            onOpen: { open(change) }
+        )
     }
 
     private func statusColor(_ status: Character) -> Color {
