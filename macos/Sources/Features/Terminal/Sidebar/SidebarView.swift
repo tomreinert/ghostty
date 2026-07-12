@@ -214,6 +214,8 @@ private struct SidebarTabCard: View {
     var showCardBorder: Bool = true
     var dimInactive: Bool = false
 
+    @State private var hoverDirectory = false
+
     private static let cardRadius: CGFloat = 8
 
     /// The accent color for the left border strip.
@@ -274,7 +276,26 @@ private struct SidebarTabCard: View {
                         Text(dir)
                             .font(.system(size: 10))
                             .foregroundColor(theme.secondaryText)
+                            .underline(hoverDirectory)
                             .lineLimit(1)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard let pwd = tab.pwd else { return }
+                        NSWorkspace.shared.open(URL(fileURLWithPath: pwd, isDirectory: true))
+                    }
+                    .help(tab.pwd.map { "Open \($0) in Finder" } ?? "")
+                    .onHover { hovering in
+                        hoverDirectory = hovering
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
+                    .onDisappear {
+                        // Balance the cursor stack if we vanish while hovered.
+                        if hoverDirectory { NSCursor.pop() }
                     }
                 }
 
