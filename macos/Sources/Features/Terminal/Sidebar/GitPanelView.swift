@@ -58,7 +58,7 @@ struct GitPanelView: View {
 
             if collapsed && !model.changes.isEmpty {
                 Text("\(model.changes.count)")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(theme.background)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
@@ -69,9 +69,9 @@ struct GitPanelView: View {
                 withAnimation(.easeInOut(duration: 0.15)) { collapsed.toggle() }
             } label: {
                 Image(systemName: collapsed ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(theme.secondaryText)
-                    .frame(width: 24, height: 20)
+                    .frame(width: 26, height: 22)
                     .background(
                         RoundedRectangle(cornerRadius: 4)
                             .fill(hoverCollapse ? theme.foreground.opacity(0.1) : Color.clear)
@@ -95,16 +95,16 @@ struct GitPanelView: View {
         } label: {
             HStack(spacing: 4) {
                 Text(model.isDetached ? "detached" : (model.branch ?? "…"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 7, weight: .semibold))
+                    .font(.system(size: 8, weight: .semibold))
                     .foregroundColor(theme.secondaryText)
                 Spacer(minLength: 0)
             }
             .foregroundColor(theme.foreground)
             .padding(.horizontal, 4)
-            .frame(height: 20)
+            .frame(height: 22)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -139,9 +139,9 @@ struct GitPanelView: View {
     private func smallButton(_ title: String, disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
                 .padding(.horizontal, 8)
-                .padding(.vertical, 3)
+                .padding(.vertical, 4)
                 .background(RoundedRectangle(cornerRadius: 5).fill(theme.activeTabBackground))
                 .foregroundColor(disabled ? theme.secondaryText : theme.foreground)
         }
@@ -156,9 +156,9 @@ struct GitPanelView: View {
         if model.changes.isEmpty {
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.circle")
-                    .font(.system(size: 9))
-                Text("No changes")
                     .font(.system(size: 10))
+                Text("No changes")
+                    .font(.system(size: 11))
             }
             .foregroundColor(theme.secondaryText)
             .padding(.vertical, 2)
@@ -173,7 +173,7 @@ struct GitPanelView: View {
                             ForEach(model.changes) { change in fileRow(change) }
                         }
                     }
-                    .frame(maxHeight: 180)
+                    .frame(maxHeight: 200)
                 } else {
                     ForEach(model.changes.prefix(Self.maxVisibleFiles)) { change in
                         fileRow(change)
@@ -184,7 +184,7 @@ struct GitPanelView: View {
                         withAnimation(.easeInOut(duration: 0.15)) { filesExpanded.toggle() }
                     } label: {
                         Text(filesExpanded ? "Show less" : "+ \(overflow) more")
-                            .font(.system(size: 9))
+                            .font(.system(size: 10))
                             .foregroundColor(theme.secondaryText)
                             .underline()
                             .padding(.leading, 15)
@@ -372,7 +372,7 @@ struct GitPanelView: View {
             HStack(spacing: 5) {
                 TextField("Commit message", text: $commitMessage)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(theme.foreground)
                     .onSubmit(commit)
                     // Suppress the focus ring; it nudges the field's content up
@@ -381,7 +381,7 @@ struct GitPanelView: View {
 
                 Button(action: commit) {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 13))
+                        .font(.system(size: 14))
                         .foregroundColor(canCommit ? theme.foreground : theme.secondaryText.opacity(0.5))
                 }
                 .buttonStyle(.plain)
@@ -416,16 +416,16 @@ struct GitPanelView: View {
     private func errorRow(_ message: String) -> some View {
         HStack(alignment: .top, spacing: 4) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9))
+                .font(.system(size: 10))
             Text(message)
-                .font(.system(size: 9))
+                .font(.system(size: 10))
                 .lineLimit(3)
             Spacer(minLength: 0)
             Button {
                 model.errorMessage = nil
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8))
+                    .font(.system(size: 9))
             }
             .buttonStyle(.plain)
         }
@@ -480,11 +480,11 @@ private struct FileRow: View {
         } label: {
             HStack(spacing: 5) {
                 Text(String(change.status))
-                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(statusColor)
-                    .frame(width: 10)
+                    .frame(width: 11)
                 Text(change.fileName)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundColor(theme.foreground.opacity(hover && openable ? 1.0 : 0.85))
                     .underline(hover && openable)
                     .lineLimit(1)
@@ -518,11 +518,11 @@ private struct FileRow: View {
     private var discardButton: some View {
         Button(action: onDiscard) {
             Image(systemName: "arrow.uturn.backward")
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: 9, weight: .semibold))
                 .foregroundColor(hoverDiscard ? theme.foreground : theme.secondaryText)
                 // Height matches the text row so reserving the space
                 // doesn't change the row height.
-                .frame(width: 14, height: 12)
+                .frame(width: 16, height: 14)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

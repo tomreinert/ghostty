@@ -38,6 +38,15 @@ enum TerminalTabColor: Int, CaseIterable, Codable {
         }
     }
 
+    /// Stable lowercase identifier used by IPC (ghosttyctl set-color).
+    var name: String { localizedName.lowercased() }
+
+    init?(name: String) {
+        let lowered = name.lowercased()
+        guard let match = Self.allCases.first(where: { $0.name == lowered }) else { return nil }
+        self = match
+    }
+
     var displayColor: NSColor? {
         switch self {
         case .none:

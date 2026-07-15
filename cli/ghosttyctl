@@ -23,6 +23,9 @@ Commands:
   notify --title T --body B  Send a notification (long form)
   set-status <key> <value> [--icon <sf-symbol>]  Set status metadata
   clear-status <key>       Clear a status key
+  set-color <color>        Set the tab color ("none" to clear)
+                           Colors: none blue purple pink red orange
+                           yellow green teal graphite
   list                     List all tabs (JSON)
   current                  Get current tab info (JSON)
 
@@ -162,6 +165,19 @@ cmd_clear_status() {
     send_request "{\"method\": \"tab.clear-status\", \"params\": {$(tab_id_param)\"key\": \"$key\"}}"
 }
 
+cmd_set_color() {
+    if [[ $# -lt 1 ]]; then
+        echo "usage: ghosttyctl set-color <color>" >&2
+        echo "colors: none blue purple pink red orange yellow green teal graphite" >&2
+        exit 1
+    fi
+
+    local color
+    color="$(json_escape "$1")"
+
+    send_request "{\"method\": \"tab.set-color\", \"params\": {$(tab_id_param)\"color\": \"$color\"}}"
+}
+
 cmd_list() {
     send_request '{"method": "tab.list", "params": {}}'
 }
@@ -197,6 +213,10 @@ case "$1" in
     clear-status)
         shift
         cmd_clear_status "$@"
+        ;;
+    set-color)
+        shift
+        cmd_set_color "$@"
         ;;
     list)
         shift
