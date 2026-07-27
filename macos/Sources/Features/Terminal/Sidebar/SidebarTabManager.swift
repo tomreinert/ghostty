@@ -39,6 +39,11 @@ class SidebarTabManager: ObservableObject {
 
     @Published var tabs: [TabItem] = []
 
+    /// True between a drop and the deferred window reorder; `refresh()`
+    /// skips while set so the still-old window order can't snap the list
+    /// back for a frame.
+    private var isCommittingDrag = false
+
     /// Windows that need attention, cleared when the tab is selected.
     private var attentionWindows: Set<ObjectIdentifier> = []
 
@@ -168,7 +173,7 @@ class SidebarTabManager: ObservableObject {
     // MARK: - Refresh
 
     func refresh() {
-        guard let window else { return }
+        guard let window, !isCommittingDrag else { return }
 
         let tabWindows: [NSWindow]
         if let tabbedWindows = window.tabbedWindows, !tabbedWindows.isEmpty {
@@ -252,27 +257,60 @@ class SidebarTabManager: ObservableObject {
         }
     }
 
-    func moveTab(from sourceIndex: Int, to destinationIndex: Int) {
-        guard let window else { return }
-        guard let tabbedWindows = window.tabbedWindows, !tabbedWindows.isEmpty else { return }
-        guard sourceIndex != destinationIndex,
-              sourceIndex >= 0, sourceIndex < tabbedWindows.count,
-              destinationIndex >= 0, destinationIndex < tabbedWindows.count else { return }
+    // MARK: - Drag Reordering
 
-        let movingWindow = tabbedWindows[sourceIndex]
-        let targetWindow = tabbedWindows[destinationIndex]
+    /// Move the dragged tab so it sits before the tab currently at
+    /// `insertIndex`, or at the end when `insertIndex == tabs.count`.
+    func commitDrag(_ draggedID: ObjectIdentifier, insertAt insertIndex: Int) {
+        let index = max(0, min(insertIndex, tabs.count))
+        guard let source = tabs.firstIndex(where: { $0.id == draggedID }),
+              // The dragged tab's own slot: nothing to do.
+              index != source, index != source + 1
+        else { return }
 
-        if sourceIndex > destinationIndex {
-            targetWindow.addTabbedWindow(movingWindow, ordered: .below)
+        // Snap the list to its final order right away; the window tab
+        // group follows a tick later so the UI never waits on the heavy
+        // AppKit tab-group work.
+        tabs.move(fromOffsets: IndexSet(integer: source), toOffset: index)
+        isCommittingDrag = true
+        DispatchQueue.main.async { [weak self] in
+            self?.reorderWindow(draggedID: draggedID, insertAt: index)
+        }
+    }
+
+    private func reorderWindow(draggedID: ObjectIdentifier, insertAt insertIndex: Int) {
+        isCommittingDrag = false
+        defer { refresh() }
+
+        guard let window,
+              let tabGroup = window.tabGroup,
+              let tabbedWindows = window.tabbedWindows, !tabbedWindows.isEmpty,
+              let source = tabbedWindows.firstIndex(where: { ObjectIdentifier($0) == draggedID })
+        else { return }
+
+        let index = min(insertIndex, tabbedWindows.count)
+        if index == source || index == source + 1 { return }
+
+        let movingWindow = tabbedWindows[source]
+        let anchor: NSWindow
+        let ordered: NSWindow.OrderingMode
+        if index == tabbedWindows.count {
+            anchor = tabbedWindows[tabbedWindows.count - 1]
+            ordered = .above // after the last tab
         } else {
-            targetWindow.addTabbedWindow(movingWindow, ordered: .above)
+            anchor = tabbedWindows[index]
+            ordered = .below // before the anchor tab
         }
+        let selectedWindow = tabGroup.selectedWindow
 
-        if let selectedWindow = window.tabGroup?.selectedWindow {
-            selectedWindow.makeKeyAndOrderFront(nil)
-        }
-
-        refresh()
+        // The window must leave the group before re-adding at the anchor;
+        // adding a window already in the group appends it at the end.
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        tabGroup.removeWindow(movingWindow)
+        anchor.addTabbedWindowSafely(movingWindow, ordered: ordered)
+        selectedWindow?.makeKeyAndOrderFront(nil)
+        NSAnimationContext.endGrouping()
     }
 
     func closeTabsToTheRight(of tab: TabItem) {
