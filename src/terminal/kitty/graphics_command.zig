@@ -422,6 +422,7 @@ pub const Transmission = struct {
     placement_id: u32 = 0, // p
     compression: Compression = .none, // o
     more_chunks: bool = false, // m
+    usage: Usage = .default, // N
 
     pub const Format = lib.Enum(lib.target, &.{
         "rgb", // 24
@@ -445,6 +446,19 @@ pub const Transmission = struct {
         "none",
         "zlib_deflate", // z
     });
+
+    /// Usage hints allow for optimising resource consumption strategies.
+    ///
+    /// https://sw.kovidgoyal.net/kitty/graphics-protocol/#usage-hints
+    pub const Usage = packed struct(u32) {
+        /// Image with this usage hint is assumed to be used for only a short
+        /// time, so may be evicted before other images if memory pressure is
+        /// encountered.
+        transient: bool = false,
+        _padding: u31 = 0,
+
+        pub const default: Usage = .{};
+    };
 
     pub fn formatBpp(format: Format) u8 {
         return switch (format) {
@@ -527,6 +541,10 @@ pub const Transmission = struct {
             if (kv.get('m')) |v| {
                 result.more_chunks = v > 0;
             }
+        }
+
+        if (kv.get('N')) |v| {
+            result.usage = @bitCast(v);
         }
 
         return result;
@@ -1005,6 +1023,26 @@ test "transmission command" {
     try testing.expectEqual(Transmission.Format.rgb, v.format);
     try testing.expectEqual(@as(u32, 10), v.width);
     try testing.expectEqual(@as(u32, 20), v.height);
+    try testing.expectEqual(false, v.usage.transient);
+}
+
+test "transmission command with transient hint" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var p = Parser.init(alloc, 1024 * 1024);
+    defer p.deinit();
+
+    const input = "f=24,s=10,v=20,N=1";
+    for (input) |c| try p.feed(c);
+    const command = try p.complete(alloc);
+    defer command.deinit(alloc);
+
+    try testing.expect(command.control == .transmit);
+    const v = command.control.transmit;
+    try testing.expectEqual(Transmission.Format.rgb, v.format);
+    try testing.expectEqual(@as(u32, 10), v.width);
+    try testing.expectEqual(@as(u32, 20), v.height);
+    try testing.expectEqual(true, v.usage.transient);
 }
 
 test "feedSlice matches per-byte feed" {

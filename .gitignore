@@ -9,11 +9,12 @@
 .flatpak-builder/
 zig-cache/
 .zig-cache/
+zig-pkg/
 zig-out/
 build-cmake/
 CMakeCache.txt
 CMakeFiles/
-/build.zig.zon.bak
+build.zig.zon.bak
 /result*
 /.nixos-test-history
 example/*.wasm
@@ -29,8 +30,8 @@ glad.zip
 
 vgcore.*
 
+/sprite_face_test*
 
 CLAUDE.md
-zig-pkg/
 .playwright-mcp/
 .zig-cache-fresh/

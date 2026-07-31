@@ -85,6 +85,13 @@ pub const PageListSearch = struct {
         self.list.untrackPin(self.pin);
     }
 
+    /// Release owned search buffers after the PageList itself has already
+    /// been destroyed. Its pin belonged to the PageList pool and was freed
+    /// with that list, so it must not be untracked here.
+    pub fn deinitListInvalid(self: *PageListSearch) void {
+        self.window.deinit();
+    }
+
     /// Return the next match in the loaded page nodes. If this returns
     /// null then the PageList search needs to be fed the next node(s).
     /// Call, `feed` to do this.
@@ -126,6 +133,9 @@ pub const PageListSearch = struct {
 
             // Move our tracked pin to the new node.
             self.pin.node = node;
+            self.pin.y = node.rows() - 1;
+            self.pin.x = node.cols() - 1;
+            self.pin.garbage = false;
 
             if (rem == 0) break;
         }
@@ -137,7 +147,8 @@ pub const PageListSearch = struct {
 
 test "simple search" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -184,7 +195,8 @@ test "simple search" {
 
 test "feed multiple pages with matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -228,7 +240,8 @@ test "feed multiple pages with matches" {
 
 test "feed multiple pages no matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 10, .rows = 10 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 10, .rows = 10 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -267,7 +280,8 @@ test "feed multiple pages no matches" {
 
 test "feed iteratively through multiple matches" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -308,7 +322,8 @@ test "feed iteratively through multiple matches" {
 
 test "feed with match spanning page boundary" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -362,10 +377,11 @@ test "feed with match spanning page boundary" {
 
 test "compressed history match spanning page boundary remains compressed" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{
         .cols = 80,
         .rows = 24,
-        .max_scrollback = 10 * 1024 * 1024,
+        .max_scrollback_bytes = 10 * 1024 * 1024,
     });
     defer t.deinit(alloc);
 
@@ -432,7 +448,8 @@ test "compressed history match spanning page boundary remains compressed" {
 
 test "feed with match spanning page boundary with newline" {
     const alloc = testing.allocator;
-    var t: Terminal = try .init(alloc, .{ .cols = 80, .rows = 24 });
+    const io = testing.io;
+    var t: Terminal = try .init(io, alloc, .{ .cols = 80, .rows = 24 });
     defer t.deinit(alloc);
 
     var s = t.vtStream();
@@ -470,7 +487,11 @@ test "feed with pruned page" {
     const alloc = testing.allocator;
 
     // Zero here forces minimum max size to effectively two pages.
-    var p: PageList = try .init(alloc, 80, 24, 0);
+    var p: PageList = try .init(alloc, .{
+        .cols = 80,
+        .rows = 24,
+        .max_size = 0,
+    });
     defer p.deinit();
 
     // Grow to capacity
@@ -509,4 +530,35 @@ test "feed with pruned page" {
 
     // Feed should still do nothing
     try testing.expect(!try search.feed());
+}
+
+test "feed keeps its tracked pin within a shorter page" {
+    const alloc = testing.allocator;
+    var pages: PageList = try .init(alloc, .{
+        .cols = 10,
+        .rows = 2,
+    });
+    defer pages.deinit();
+
+    const first = pages.pages.first.?;
+    while (first.rows() < first.capacity().rows) _ = try pages.grow();
+
+    const second = (try pages.grow()).?;
+    while (second.rows() < second.capacity().rows) _ = try pages.grow();
+
+    try pages.split(.{ .node = first, .y = 1, .x = 0 });
+    const shorter = first.next.?;
+    try testing.expect(shorter.rows() < second.rows());
+
+    var search: PageListSearch = try .init(
+        alloc,
+        "x",
+        &pages,
+        second,
+    );
+    defer search.deinit();
+
+    try testing.expect(try search.feed());
+    try testing.expectEqual(shorter, search.pin.node);
+    try testing.expect(pages.pinIsValid(search.pin.*));
 }

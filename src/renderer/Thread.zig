@@ -4,7 +4,8 @@ pub const Thread = @This();
 
 const std = @import("std");
 const builtin = @import("builtin");
-const xev = @import("../global.zig").xev;
+const global = @import("../global.zig");
+const xev = global.xev;
 const crash = @import("../crash/main.zig");
 const internal_os = @import("../os/main.zig");
 const rendererpkg = @import("../renderer.zig");
@@ -361,7 +362,7 @@ fn drainMailbox(self: *Thread) !void {
         void;
     defer if (builtin.os.tag.isDarwin()) pool.deinit();
 
-    while (self.mailbox.pop()) |message| {
+    while (self.mailbox.pop(global.io())) |message| {
         log.debug("mailbox message={}", .{message});
         switch (message) {
             .crash => @panic("crash request, crashing intentionally"),
@@ -788,7 +789,7 @@ const Compression = struct {
         // frame without changing terminal contents and must not starve this
         // timer indefinitely.
         if (thread.state.mutex.tryLock()) {
-            defer thread.state.mutex.unlock();
+            defer thread.state.mutex.unlock(global.io());
             const activity = thread.state.terminal.compressionActivity();
             if (self.activity == activity) return;
             self.activity = activity;
@@ -847,7 +848,7 @@ const Compression = struct {
 
         const state = thread.state;
         if (!state.mutex.tryLock()) return idle_interval;
-        defer state.mutex.unlock();
+        defer state.mutex.unlock(global.io());
 
         const activity = state.terminal.compressionActivity();
         if (self.activity != activity) {
