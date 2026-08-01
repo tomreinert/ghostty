@@ -1,10 +1,11 @@
+# Ghostty Sidegeist
+
 **Personal fork of [Ghostty](https://github.com/ghostty-org/ghostty)** with a sidebar tab system and a built-in git panel for macOS. For the official Ghostty terminal, visit [ghostty.org](https://ghostty.org). All credit goes to them.
 
 🧪 **Experimental**  
 Please note that this is experimental and I built it for my own use. It works fine for me, but feel free and try to break it.
 
-🐛 **Known bugs**  
-~~- Unread indicator does not clear correctly, and might re-appear when switching tabs~~
+📦 **[Download Ghostty Sidegeist for macOS](https://github.com/tomreinert/ghostty-sidegeist/releases/latest/download/Ghostty-Sidegeist.zip)**
 
 <img width="1125" height="749" alt="ghostty-sidebar" src="https://github.com/user-attachments/assets/919a9220-4e07-4b2e-b491-c9d385b6585f" />
 
