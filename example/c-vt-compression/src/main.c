@@ -30,12 +30,14 @@ static bool compression_idle_step(GhosttyTerminal terminal) {
 
 int main(void) {
   GhosttyTerminal terminal;
-  GhosttyTerminalOptions opts = {
-    .cols = 80,
-    .rows = 24,
-    .max_scrollback = 10 * 1024 * 1024,
-  };
-  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, opts);
+  GhosttyResult result = ghostty_terminal_new(NULL, &terminal, 80, 24);
+  assert(result == GHOSTTY_SUCCESS);
+
+  size_t max_scrollback_bytes = 10 * 1024 * 1024;
+  result = ghostty_terminal_set(
+      terminal,
+      GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+      &max_scrollback_bytes);
   assert(result == GHOSTTY_SUCCESS);
 
   //! [compression-activity]

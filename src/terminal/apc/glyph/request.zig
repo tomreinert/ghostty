@@ -305,6 +305,7 @@ pub const Request = union(enum) {
                 error.CompositeNotSupported => error.CompositeUnsupported,
                 error.InstructionsNotSupported => error.HintingUnsupported,
                 // Various semantic issues
+                error.ReadFailed,
                 error.EndOfStream,
                 error.EndPointsOutOfOrder,
                 error.TooManyPoints,

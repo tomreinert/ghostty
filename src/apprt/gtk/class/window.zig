@@ -1374,9 +1374,31 @@ pub const Window = extern struct {
             }
         }
 
+        // Notify every displayed surface when the compositor changes the
+        // Wayland xdg_toplevel suspended state.
+        _ = gobject.Object.signals.notify.connect(
+            self.as(gtk.Window),
+            *Self,
+            propSuspended,
+            self,
+            .{ .detail = "suspended" },
+        );
+
         // When we are realized we always setup our appearance since this
         // calls some winproto functions.
         self.syncAppearance();
+    }
+
+    fn propSuspended(
+        _: *gtk.Window,
+        _: *gobject.ParamSpec,
+        self: *Self,
+    ) callconv(.c) void {
+        const tab = self.getSelectedTab() orelse return;
+        const tree = tab.getSurfaceTree() orelse return;
+
+        var it = tree.iterator();
+        while (it.next()) |entry| entry.view.updateOcclusion();
     }
 
     fn btnNewTab(_: *adw.SplitButton, self: *Self) callconv(.c) void {

@@ -209,9 +209,15 @@ pub const RenderState = struct {
         /// change often.
         arena: ArenaAllocator.State,
 
-        /// The page pin. This is not safe to read unless you can guarantee
-        /// the terminal state hasn't changed since the last `update` call.
+        /// The page pin. Its copied values may be compared, but its node must
+        /// not be dereferenced unless the terminal state is protected from
+        /// changes since the last `update` call.
         pin: PageList.Pin,
+
+        /// The page node generation captured alongside `pin`. This lets
+        /// consumers validate the pin without dereferencing its node after
+        /// the terminal lock has been released.
+        serial: u64,
 
         /// Raw row data.
         raw: page.Row,
@@ -452,6 +458,7 @@ pub const RenderState = struct {
                     row_data.set(y, .{
                         .arena = .{},
                         .pin = undefined,
+                        .serial = undefined,
                         .raw = undefined,
                         .cells = .empty,
                         .dirty = true,
@@ -477,6 +484,7 @@ pub const RenderState = struct {
         const row_data = self.row_data.slice();
         const row_arenas = row_data.items(.arena);
         const row_pins = row_data.items(.pin);
+        const row_serials = row_data.items(.serial);
         const row_rows = row_data.items(.raw);
         const row_cells = row_data.items(.cells);
         const row_sels = row_data.items(.selection);
@@ -511,6 +519,7 @@ pub const RenderState = struct {
         while (y < self.rows) {
             const chunk = page_it.next() orelse break;
             const node = chunk.node;
+            const node_serial = node.serial;
             const p: *page.Page = node.page();
 
             // The number of rows we consume from this chunk. The chunk
@@ -552,25 +561,34 @@ pub const RenderState = struct {
             const page_rows: []page.Row = p.rows.ptr(p.memory)[chunk.start..][0..take];
             assert(p.size.cols == self.cols);
 
-            // Store our pins. We have to store these even for rows that
-            // aren't dirty because dirty is only a renderer optimization;
-            // it doesn't apply to memory movement. This lets us remap any
-            // cell pins back to an exact entry in our RenderState.
+            // Store our pins and their node generations. We have to store
+            // these even for rows that aren't dirty because dirty is only a
+            // renderer optimization; it doesn't apply to memory movement.
+            // This lets us remap any cell pins back to an exact entry in our
+            // RenderState and validate them later without dereferencing a
+            // potentially stale node.
             //
-            // We can skip the writes when the pins are unchanged: if we're
-            // not redrawing, every pin was stored by a prior update (row
-            // count changes force a redraw). Within a single update a node
-            // appears at most once and its stored pins have consecutive y
-            // values, so if the first and last pins of this chunk's range
-            // already match then every pin in between matches too.
+            // We can skip the writes when the pins and serials are unchanged:
+            // if we're not redrawing, every value was stored by a prior update
+            // (row count changes force a redraw). Within a single update a
+            // node appears at most once and its stored pins have consecutive
+            // y values, so if the first and last entries of this chunk's range
+            // already match then every entry in between matches too.
             if (redraw or
                 row_pins[y].node != node or
                 row_pins[y].y != chunk.start or
+                row_serials[y] != node_serial or
                 row_pins[y + take - 1].node != node or
-                row_pins[y + take - 1].y != chunk.start + take - 1)
+                row_pins[y + take - 1].y != chunk.start + take - 1 or
+                row_serials[y + take - 1] != node_serial)
             {
-                for (row_pins[y..][0..take], chunk.start..) |*pin, py| {
+                for (
+                    row_pins[y..][0..take],
+                    row_serials[y..][0..take],
+                    chunk.start..,
+                ) |*pin, *serial, py| {
                     pin.* = .{ .node = node, .y = @intCast(py) };
+                    serial.* = node_serial;
                 }
             }
 
@@ -763,22 +781,28 @@ pub const RenderState = struct {
         const row_arenas = row_data.items(.arena);
         const row_dirties = row_data.items(.dirty);
         const row_pins = row_data.items(.pin);
+        const row_serials = row_data.items(.serial);
         const row_highlights_slice = row_data.items(.highlights);
         for (
             row_arenas,
             row_pins,
+            row_serials,
             row_highlights_slice,
             row_dirties,
-        ) |*row_arena, row_pin, *row_highlights, *dirty| {
+        ) |*row_arena, row_pin, row_serial, *row_highlights, *dirty| {
             for (hls) |hl| {
                 const chunks_slice = hl.chunks.slice();
                 const nodes = chunks_slice.items(.node);
+                const serials = chunks_slice.items(.serial);
                 const starts = chunks_slice.items(.start);
                 const ends = chunks_slice.items(.end);
                 for (0.., nodes) |i, node| {
-                    // If this node doesn't match or we're not within
-                    // the row range, skip it.
+                    // If this node generation doesn't match or we're not
+                    // within the row range, skip it. Both serials are copied
+                    // values, so this never dereferences a node outside the
+                    // terminal lock.
                     if (node != row_pin.node or
+                        serials[i] != row_serial or
                         row_pin.y < starts[i] or
                         row_pin.y >= ends[i]) continue;
 
@@ -1156,7 +1180,7 @@ const RowBuilder = struct {
                             .b = page_cell.content.color_rgb.b,
                         } } },
                         .bg_color_palette => .{ .bg_color = .{
-                            .palette = page_cell.content.color_palette,
+                            .palette = page_cell.content.color_palette.data,
                         } },
                         else => unreachable,
                     };
@@ -1192,8 +1216,9 @@ const RowBuilder = struct {
 test "styled" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 80,
         .rows = 24,
     });
@@ -1210,8 +1235,9 @@ test "styled" {
 test "basic text" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1246,8 +1272,9 @@ test "basic text" {
 test "styled text" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1391,15 +1418,16 @@ fn testCompareStates(
 test "incremental updates match full rebuild" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     // Deterministic so failures are reproducible.
     var prng = std.Random.DefaultPrng.init(0xB0BA_CAFE);
     const rand = prng.random();
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 20,
         .rows = 8,
-        .max_scrollback = 500,
+        .max_scrollback_bytes = 500,
     });
     defer t.deinit(alloc);
 
@@ -1527,8 +1555,9 @@ test "incremental updates match full rebuild" {
 test "begin and end update" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1575,8 +1604,9 @@ test "begin and end update" {
 test "bg color cells" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1617,8 +1647,9 @@ test "bg color cells" {
 test "grapheme" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1664,8 +1695,9 @@ test "grapheme" {
 test "cursor state in viewport" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 5,
     });
@@ -1706,8 +1738,9 @@ test "cursor state in viewport" {
 test "cursor state out of viewport" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 2,
     });
@@ -1740,8 +1773,9 @@ test "cursor state out of viewport" {
 test "dirty state" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 5,
     });
@@ -1789,8 +1823,9 @@ test "dirty state" {
 test "colors" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 5,
     });
@@ -1826,8 +1861,9 @@ test "colors" {
 test "selection single line" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t: Terminal = try .init(alloc, .{
+    var t: Terminal = try .init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1861,8 +1897,9 @@ test "selection single line" {
 test "selection multiple lines" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t: Terminal = try .init(alloc, .{
+    var t: Terminal = try .init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });
@@ -1897,8 +1934,9 @@ test "selection multiple lines" {
 test "linkCells" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 5,
     });
@@ -1933,8 +1971,9 @@ test "linkCells" {
 test "string" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 5,
         .rows = 2,
     });
@@ -1963,14 +2002,15 @@ test "string" {
 test "linkCells with scrollback spanning pages" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
     const viewport_rows: size.CellCountInt = 10;
     const tail_rows: size.CellCountInt = 5;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = page.std_capacity.cols,
         .rows = viewport_rows,
-        .max_scrollback = 10_000,
+        .max_scrollback_bytes = 10_000,
     });
     defer t.deinit(alloc);
 
@@ -2005,8 +2045,9 @@ test "linkCells with scrollback spanning pages" {
 test "linkCells with invalid viewport point" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 5,
     });
@@ -2040,11 +2081,80 @@ test "linkCells with invalid viewport point" {
     }
 }
 
+test "flattened highlights require matching page serial" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    var t = try Terminal.init(io, alloc, .{
+        .cols = 10,
+        .rows = 3,
+    });
+    defer t.deinit(alloc);
+
+    // Capture the live generation while terminal-owned state is in scope so
+    // we can also verify beginUpdate copies it into the render row.
+    const live_pin = t.screens.active.pages.getTopLeft(.viewport);
+    const live_serial = live_pin.node.serial;
+
+    var state: RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    const pin: PageList.Pin = pin: {
+        const row_data = state.row_data.slice();
+        @memset(row_data.items(.dirty), false);
+        state.dirty = .false;
+        break :pin row_data.items(.pin)[0];
+    };
+    const row_serial = state.row_data.items(.serial)[0];
+    try testing.expectEqual(live_pin.node, pin.node);
+    try testing.expectEqual(live_serial, row_serial);
+
+    // Use the exact node pointer and row captured by the render state, but a
+    // different generation. A reused node address must not make this stale
+    // flattened highlight match.
+    var hl: highlight.Flattened = .{
+        .chunks = .empty,
+        .top_x = 2,
+        .bot_x = 4,
+    };
+    defer hl.deinit(alloc);
+    try hl.chunks.append(alloc, .{
+        .node = pin.node,
+        .serial = live_serial ^ 1,
+        .start = pin.y,
+        .end = pin.y + 1,
+    });
+
+    try state.updateHighlightsFlattened(alloc, 42, &.{hl});
+    {
+        const row_data = state.row_data.slice();
+        try testing.expectEqual(0, row_data.items(.highlights)[0].items.len);
+        try testing.expect(!row_data.items(.dirty)[0]);
+        try testing.expectEqual(.false, state.dirty);
+    }
+
+    // The same chunk is accepted once its copied serial also matches.
+    hl.chunks.items(.serial)[0] = live_serial;
+    try state.updateHighlightsFlattened(alloc, 42, &.{hl});
+    {
+        const row_data = state.row_data.slice();
+        const row_highlights = row_data.items(.highlights)[0].items;
+        try testing.expectEqual(1, row_highlights.len);
+        try testing.expectEqual(42, row_highlights[0].tag);
+        try testing.expectEqual([2]size.CellCountInt{ 2, 4 }, row_highlights[0].range);
+        try testing.expect(row_data.items(.dirty)[0]);
+        try testing.expectEqual(.partial, state.dirty);
+    }
+}
+
 test "dirty row resets highlights" {
     const testing = std.testing;
     const alloc = testing.allocator;
+    const io = testing.io;
 
-    var t = try Terminal.init(alloc, .{
+    var t = try Terminal.init(io, alloc, .{
         .cols = 10,
         .rows = 3,
     });

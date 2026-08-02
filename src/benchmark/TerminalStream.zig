@@ -19,6 +19,7 @@ const Benchmark = @import("Benchmark.zig");
 const options = @import("options.zig");
 const Terminal = terminalpkg.Terminal;
 const Stream = terminalpkg.TerminalStream;
+const global = @import("../global.zig");
 
 const log = std.log.scoped(.@"terminal-stream-bench");
 
@@ -27,7 +28,7 @@ terminal: Terminal,
 stream: Stream,
 
 /// The file, opened in the setup function.
-data_f: ?std.fs.File = null,
+data_f: ?std.Io.File = null,
 
 pub const Options = struct {
     /// The size of the terminal. This affects benchmarking when
@@ -54,7 +55,7 @@ pub fn create(
 
     ptr.* = .{
         .opts = opts,
-        .terminal = try .init(alloc, .{
+        .terminal = try .init(global.io(), alloc, .{
             .rows = opts.@"terminal-rows",
             .cols = opts.@"terminal-cols",
         }),
@@ -97,7 +98,7 @@ fn setup(ptr: *anyopaque) Benchmark.Error!void {
 fn teardown(ptr: *anyopaque) void {
     const self: *TerminalStream = @ptrCast(@alignCast(ptr));
     if (self.data_f) |f| {
-        f.close();
+        f.close(global.io());
         self.data_f = null;
     }
 }
@@ -112,8 +113,10 @@ fn step(ptr: *anyopaque) Benchmark.Error!void {
     // aren't currently IO bound.
     const f = self.data_f orelse return;
 
-    var read_buf: [64 * 1024]u8 align(std.atomic.cache_line) = undefined;
-    var f_reader = f.reader(&read_buf);
+    // Unbuffered: readSliceShort below reads directly into `buf`,
+    // avoiding a per-chunk memcpy through an intermediate reader
+    // buffer that would pollute the measurement.
+    var f_reader = f.reader(global.io(), &.{});
     const r = &f_reader.interface;
 
     // This buffer size matches the read buffer size used by the

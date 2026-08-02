@@ -213,7 +213,7 @@ pub fn get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(Data, @intFromEnum(data)) catch {
+        _ = std.enums.fromInt(Data, @intFromEnum(data)) orelse {
             log.warn("render_state_get invalid data value={d}", .{@intFromEnum(data)});
             return .invalid_value;
         };
@@ -310,7 +310,7 @@ pub fn set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(SetOption, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(SetOption, @intFromEnum(option)) orelse {
             log.warn("render_state_set invalid option value={d}", .{@intFromEnum(option)});
             return .invalid_value;
         };
@@ -509,7 +509,7 @@ pub fn row_cells_get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(RowCellsData, @intFromEnum(data)) catch {
+        _ = std.enums.fromInt(RowCellsData, @intFromEnum(data)) orelse {
             log.warn("render_state_row_cells_get invalid data value={d}", .{@intFromEnum(data)});
             return .invalid_value;
         };
@@ -671,7 +671,7 @@ pub fn row_get(
     out: ?*anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(RowData, @intFromEnum(data)) catch {
+        _ = std.enums.fromInt(RowData, @intFromEnum(data)) orelse {
             log.warn("render_state_row_get invalid data value={d}", .{@intFromEnum(data)});
             return .invalid_value;
         };
@@ -751,7 +751,7 @@ pub fn row_set(
     value: ?*const anyopaque,
 ) callconv(lib.calling_conv) Result {
     if (comptime std.debug.runtime_safety) {
-        _ = std.meta.intToEnum(RowOption, @intFromEnum(option)) catch {
+        _ = std.enums.fromInt(RowOption, @intFromEnum(option)) orelse {
             log.warn("render_state_row_set invalid option value={d}", .{@intFromEnum(option)});
             return .invalid_value;
         };
@@ -827,11 +827,8 @@ test "render: begin/end update" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 10,
-            .rows = 3,
-            .max_scrollback = 10_000,
-        },
+        10,
+        3,
     ));
     defer terminal_c.free(terminal);
 
@@ -952,11 +949,8 @@ test "render: row iterator new/free" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1008,11 +1002,8 @@ test "render: row get invalid data" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1047,11 +1038,8 @@ test "render: row set before iteration" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1081,11 +1069,8 @@ test "render: row get before iteration" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1115,11 +1100,8 @@ test "render: row get/set dirty" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1173,11 +1155,8 @@ test "render: row get selection" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 10,
-            .rows = 3,
-            .max_scrollback = 10_000,
-        },
+        10,
+        3,
     ));
     defer terminal_c.free(terminal);
 
@@ -1227,11 +1206,8 @@ test "render: row cells get selected" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 10,
-            .rows = 3,
-            .max_scrollback = 10_000,
-        },
+        10,
+        3,
     ));
     defer terminal_c.free(terminal);
 
@@ -1310,11 +1286,8 @@ test "render: row cells get has_styling" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 10,
-            .rows = 3,
-            .max_scrollback = 10_000,
-        },
+        10,
+        3,
     ));
     defer terminal_c.free(terminal);
 
@@ -1390,7 +1363,8 @@ test "render: row cells get graphemes utf8" {
         try testing.expectEqual(Result.success, terminal_c.new(
             &lib.alloc.test_allocator,
             &terminal,
-            .{ .cols = 10, .rows = 3, .max_scrollback = 10_000 },
+            10,
+            3,
         ));
         defer terminal_c.free(terminal);
 
@@ -1447,7 +1421,8 @@ test "render: row cells get graphemes utf8" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 10, .rows = 3, .max_scrollback = 10_000 },
+        10,
+        3,
     ));
     defer terminal_c.free(terminal);
 
@@ -1493,11 +1468,8 @@ test "render: row iterator next" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1543,11 +1515,8 @@ test "render: update" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1576,11 +1545,8 @@ test "render: colors get" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1618,11 +1584,8 @@ test "render: row cells bg_color no background" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1668,11 +1631,8 @@ test "render: row cells bg_color from style" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1720,11 +1680,8 @@ test "render: row cells bg_color from content tag" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1774,11 +1731,8 @@ test "render: row cells fg_color no foreground" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1824,11 +1778,8 @@ test "render: row cells fg_color from style" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1876,11 +1827,8 @@ test "render: colors get supports truncated sized struct" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{
-            .cols = 80,
-            .rows = 24,
-            .max_scrollback = 10_000,
-        },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1911,7 +1859,8 @@ test "render: get_multi success" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1947,7 +1896,8 @@ test "render: row_get_multi success" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
@@ -1990,7 +1940,8 @@ test "render: row_cells_get_multi success" {
     try testing.expectEqual(Result.success, terminal_c.new(
         &lib.alloc.test_allocator,
         &terminal,
-        .{ .cols = 80, .rows = 24, .max_scrollback = 10_000 },
+        80,
+        24,
     ));
     defer terminal_c.free(terminal);
 
